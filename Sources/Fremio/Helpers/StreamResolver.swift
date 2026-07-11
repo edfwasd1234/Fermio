@@ -1,6 +1,6 @@
 import Foundation
 
-class StreamResolver {
+final class StreamResolver: Sendable {
     static let shared = StreamResolver()
     
     private init() {}

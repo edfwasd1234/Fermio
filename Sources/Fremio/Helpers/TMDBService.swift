@@ -1,6 +1,7 @@
 import Foundation
 
 /// A service to query movie and show metadata from TMDB and cache responses.
+@MainActor
 class TMDBService {
     static let shared = TMDBService()
     

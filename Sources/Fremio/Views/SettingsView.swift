@@ -257,7 +257,7 @@ struct SettingsView: View {
             
             Toggle("", isOn: isEnabled)
                 .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(onTintColor: .blue))
+                .toggleStyle(SwitchToggleStyle(tint: .blue))
                 .onChange(of: isEnabled.wrappedValue) { _ in
                     action?()
                 }

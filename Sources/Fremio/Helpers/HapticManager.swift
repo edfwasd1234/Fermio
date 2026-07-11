@@ -1,6 +1,7 @@
 import UIKit
 
 /// A manager for handling iOS Haptic Feedback, integrated with UserDefaults settings.
+@MainActor
 class HapticManager {
     static let shared = HapticManager()
     

@@ -176,7 +176,9 @@ struct MoviePlayerView: View {
                         let total = CMTimeGetSeconds(durationTime)
                         guard total > 0 else { return }
                         
-                        saveProgress(current: current, total: total)
+                        Task { @MainActor in
+                            self.saveProgress(current: current, total: total)
+                        }
                     }
                     
                     // Request audio session management

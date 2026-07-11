@@ -122,7 +122,7 @@ struct MediaCard: View {
 
 /// A SwiftUI ButtonStyle helper to capture press triggers for custom scale effects and haptic responses.
 struct PressActionsButtonStyle: ButtonStyle {
-    @Binding var isPressed: Binding<Bool>.ValueType
+    @Binding var isPressed: Bool
     
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
