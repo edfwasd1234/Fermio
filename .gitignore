@@ -1,9 +1,0 @@
-.build/
-.swiftpm/
-.DS_Store
-.xtool-tmp/
-xtool/.xtool-tmp/
-*.ipa
-.gemini/
-.agents/
-.gitignore
