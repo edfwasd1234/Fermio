@@ -73,38 +73,91 @@ final class StreamResolver: Sendable {
             throw NSError(domain: "StreamResolver", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse proxy response"])
         }
         
-        // Traverse nested dictionary robustly
-        let mp4Data = json["mp4Data"] as? [String: Any]
-        let downloadInfo = (mp4Data?["downloadInfo"] as? [String: Any]) ?? (mp4Data?["data"] as? [String: Any]) ?? mp4Data
-        let dataField = (downloadInfo?["data"] as? [String: Any]) ?? downloadInfo
-        
-        guard let downloads = dataField?["downloads"] as? [[String: Any]], !downloads.isEmpty else {
-            throw NSError(domain: "StreamResolver", code: 3, userInfo: [NSLocalizedDescriptionKey: "No video downloads available"])
-        }
-        
-        // Filter and sort downloads by resolution descending to get highest quality first
-        let parsedEntries: [(url: String, resolution: Int)] = downloads.compactMap { entry in
-            guard let rawUrl = entry["url"] as? String, !rawUrl.isEmpty else { return nil }
-            let format = entry["format"] as? String ?? "MP4"
-            guard format.uppercased() == "MP4" else { return nil }
+        // Traverse nested dictionary for Flux 1 (mp4Data), Flux 2 (mkvV2Data/mkvData), and Flux 3 (mkvV3Data)
+        var flux1Entries: [(url: String, resolution: Int)] = []
+        if let mp4Data = json["mp4Data"] as? [String: Any] {
+            let downloadInfo = (mp4Data["downloadInfo"] as? [String: Any]) ?? (mp4Data["data"] as? [String: Any]) ?? mp4Data
+            let dataField = (downloadInfo["data"] as? [String: Any]) ?? downloadInfo
             
-            let resVal: Int
-            if let intRes = entry["resolution"] as? Int {
-                resVal = intRes
-            } else if let strRes = entry["resolution"] as? String, let intRes = Int(strRes.filter(\.isNumber)) {
-                resVal = intRes
-            } else {
-                resVal = 0
+            let sourceList = (dataField["downloads"] as? [[String: Any]]) ?? (dataField["streams"] as? [[String: Any]])
+            if let entries = sourceList {
+                for entry in entries {
+                    if let rawUrl = entry["url"] as? String, !rawUrl.isEmpty {
+                        let resVal = parseResolution(entry["resolution"])
+                        flux1Entries.append((rawUrl, resVal))
+                    }
+                }
             }
-            return (rawUrl, resVal)
         }
         
-        guard let selectedEntry = parsedEntries.sorted(by: { $0.resolution > $1.resolution }).first else {
-            throw NSError(domain: "StreamResolver", code: 4, userInfo: [NSLocalizedDescriptionKey: "No suitable MP4 stream found"])
+        // Try Flux 2 (mkvV2Data or mkvData)
+        var flux2Entries: [(url: String, resolution: Int)] = []
+        let mkvKeys = ["mkvV2Data", "mkvData"]
+        for key in mkvKeys {
+            if let mkvVal = json[key] {
+                if let mkvArray = mkvVal as? [[String: Any]] {
+                    for entry in mkvArray {
+                        if let url = entry["url"] as? String, !url.isEmpty {
+                            let resVal = parseResolution(entry["quality"] ?? entry["resolution"])
+                            flux2Entries.append((url, resVal))
+                        }
+                    }
+                } else if let mkvDict = mkvVal as? [String: Any] {
+                    if let files = mkvDict["files"] as? [[String: Any]] {
+                        for file in files {
+                            if let url = file["url"] as? String, !url.isEmpty {
+                                let resVal = parseResolution(file["quality"] ?? file["resolution"])
+                                flux2Entries.append((url, resVal))
+                            }
+                        }
+                    } else if let url = mkvDict["url"] as? String, !url.isEmpty {
+                        let resVal = parseResolution(mkvDict["quality"] ?? mkvDict["resolution"])
+                        flux2Entries.append((url, resVal))
+                    }
+                }
+            }
+        }
+        
+        // Try Flux 3 (mkvV3Data)
+        var flux3Entries: [(url: String, resolution: Int)] = []
+        if let mkvV3Data = json["mkvV3Data"] as? [String: Any] {
+            if let downloads = mkvV3Data["downloads"] as? [[String: Any]] {
+                for download in downloads {
+                    if let qualities = download["qualities"] as? [[String: Any]] {
+                        for quality in qualities {
+                            let resVal = parseResolution(quality["quality"] ?? quality["resolution"])
+                            if let episodes = quality["episodes"] as? [[String: Any]] {
+                                for episodeEntry in episodes {
+                                    if let url = episodeEntry["url"] as? String, !url.isEmpty {
+                                        flux3Entries.append((url, resVal))
+                                    }
+                                }
+                            }
+                        }
+                    } else if let url = download["url"] as? String, !url.isEmpty {
+                        let resVal = parseResolution(download["quality"] ?? download["resolution"])
+                        flux3Entries.append((url, resVal))
+                    }
+                }
+            }
+        }
+        
+        // Select first available server in order: Flux 1 -> Flux 2 -> Flux 3
+        var selectedEntry: (url: String, resolution: Int)? = nil
+        if !flux1Entries.isEmpty {
+            selectedEntry = flux1Entries.sorted(by: { $0.resolution > $1.resolution }).first
+        } else if !flux2Entries.isEmpty {
+            selectedEntry = flux2Entries.sorted(by: { $0.resolution > $1.resolution }).first
+        } else if !flux3Entries.isEmpty {
+            selectedEntry = flux3Entries.sorted(by: { $0.resolution > $1.resolution }).first
+        }
+        
+        guard let finalRawUrl = selectedEntry?.url else {
+            throw NSError(domain: "StreamResolver", code: 4, userInfo: [NSLocalizedDescriptionKey: "not found, please wait a little more for our team to put it on here."])
         }
         
         // 3. Construct proxy URL through vlaq11.site (mimicking encodeURIComponent)
-        let encodedVideoUrl = encodeURIComponent(selectedEntry.url)
+        let encodedVideoUrl = encodeURIComponent(finalRawUrl)
         let finalStreamString = "https://vlaq11.site/\(encodedVideoUrl)"
         
         guard let finalUrl = URL(string: finalStreamString) else {
@@ -112,6 +165,15 @@ final class StreamResolver: Sendable {
         }
         
         return finalUrl
+    }
+    
+    private func parseResolution(_ value: Any?) -> Int {
+        if let intRes = value as? Int {
+            return intRes
+        } else if let strRes = value as? String, let intRes = Int(strRes.filter(\.isNumber)) {
+            return intRes
+        }
+        return 0
     }
     
     private func encodeURIComponent(_ string: String) -> String {
