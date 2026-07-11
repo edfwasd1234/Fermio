@@ -329,6 +329,7 @@ struct HeroBanner: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(height: 360)
+                                .clipped()
                         default:
                             placeholderGradient
                         }
@@ -338,6 +339,8 @@ struct HeroBanner: View {
                 }
             }
             .frame(height: 360)
+            .frame(maxWidth: .infinity)
+            .clipped()
             
             // Shading and overlay for readability
             LinearGradient(
