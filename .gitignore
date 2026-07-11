@@ -6,3 +6,4 @@ xtool/.xtool-tmp/
 *.ipa
 .gemini/
 .agents/
+.gitignore
