@@ -27,7 +27,9 @@ jobs:
 
       - name: Setup Darwin SDK for xtool
         run: |
-          xtool setup
+          XCODE_PATH=$(xcode-select -p)
+          XCODE_APP="${XCODE_PATH%/Contents/Developer}"
+          xtool sdk install "$XCODE_APP"
 
       - name: Compile and Package Unsigned IPA
         run: |
