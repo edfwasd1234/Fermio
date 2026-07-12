@@ -1,52 +1,85 @@
-# Fremio 🎬
+# Fremio
 
-Fremio is a premium, lightweight, native iOS movie and TV show streaming client. Built using **Swift 6.2** and targeting **iOS 26.0+**, it utilizes Apple's native **Liquid Glass** effect for a high-end, light-reactive visual experience. 
-
-Fremio communicates directly with TMDB for rich metadata and parses streaming endpoints dynamically without the need for an external proxy server or backend database.
+Fremio is a personal-use native iOS movie and TV show watching app built with SwiftUI. It pairs a clean Apple-style iPhone interface with dynamic stream resolution, multi-server fallback logic, and native Liquid Glass components.
 
 ---
 
-## ✨ Features
-
-* **Native SwiftUI & iOS 26 Liquid Glass:** Stunning glassmorphism UI leveraging Apple's native `.glassEffect(in:)` and `GlassEffectContainer` APIs.
-* **Direct High-Quality Streaming:** Feeds raw video streams directly into Apple's hardware-accelerated `AVPlayer`.
-* **Automatic Multi-Server Fallback:** Automatically queries and retries multiple servers in sequence when a title is requested:
-  $$\text{Flux 1 (mp4Data)} \longrightarrow \text{Flux 2 (mkvV2Data)} \longrightarrow \text{Flux 3 (mkvV3Data)}$$
-* **Smart Watch Progress:** Tracks and saves playback positions locally, rendering a beautiful custom progress bar under the **Continue Watching** dashboard.
-* **Recommendations Engine:** Shows customized "You May Also Like" carousels based on similar TMDB genres.
-* **Local Playlists:** Quick in-app Watchlists and Favorites stored securely in `UserDefaults`.
-
----
-
-## 🛠️ How It Works
-
-1. **Metadata Retrieval:** When you search or browse a title, Fremio fetches real-time details from **The Movie Database (TMDB)**. Responses and image assets are cached locally in the app's cache directory.
-2. **Stream Resolution:** When you tap **Play**, the app generates a secure request token and calls the `vidvault.ru/api/download-proxy` endpoint.
-3. **Fallback Loop:** The resolver scans Flux 1. If no direct streams are available, it retries on Flux 2, and then Flux 3. If all fail, the player displays a custom prompt: *"not found, please wait a little more for our team to put it on here."*
-4. **Proxy Playback:** Once a stream is found, its URL is encoded and routed through a fast gateway (`https://vlaq11.site/`) using custom HTTP Referer and User-Agent headers to bypass CDN blocks.
+## Features
+- Native SwiftUI app shell targeting iOS 26.0+ and compiled with Swift 6.2.
+- Native Apple Liquid Glass effect using `.glassEffect(in:)` and `GlassEffectContainer` APIs for light-reactive glassmorphism.
+- Real-time metadata, popular titles, trending lists, and similar content recommendations powered directly by TMDB.
+- Direct hardware-accelerated playback for MP4 and HLS streams using AVKit and AVPlayer.
+- Automatic multi-server fallback: sequentially queries and retries Flux 1 (`mp4Data`), Flux 2 (`mkvV2Data`/`mkvData`), and Flux 3 (`mkvV3Data`) stream endpoints.
+- Custom CDN bypass headers (`"Referer": "https://vidvault.ru/"`) configured directly on `AVURLAsset`.
+- Continue Watching progress saved locally with a custom progress bar dashboard.
+- Library screen with Watchlist and Favorites.
+- GitHub Actions workflow that automatically compiles and packages an unsigned iOS IPA artifact using `xtool`.
 
 ---
 
-## 🚀 Setup & Installation Guide
+## Current Limitations
+- The IPA produced by GitHub Actions is unsigned. You must sign/sideload it before installing it on an iPhone.
+- Real Apple Liquid Glass requires building with iOS 26.0+ SDK.
+- Direct playback relies on stream availability from remote databases. If a stream is missing from all three servers, the player returns a custom *"not found"* prompt.
 
-Fremio is configured to build as an unsigned `.ipa` automatically on every commit via GitHub Actions.
+---
 
-### Method 1: Sideloading via GitHub Actions (easiest)
-1. Go to your public GitHub repository at [https://github.com/edfwasd1234/Fermio](https://github.com/edfwasd1234/Fermio).
-2. Click on the **Actions** tab.
-3. Select the latest workflow run.
-4. Scroll down to the **Artifacts** section and download the `Fremio-unsigned-ipa` zip file.
-5. Extract the `.ipa` and install it onto your iOS device using **TrollStore, AltStore, Sideloadly, or Esign**.
+## Repository Layout
+```
+.
+├── .github/workflows/      # GitHub Actions build workflow
+├── Sources/                # Native SwiftUI source code
+│   └── Fremio/
+│       ├── Components/     # Visual buttons, cards, tab bar
+│       ├── Helpers/        # Haptics, metadata service, stream resolver
+│       └── Views/          # Home, search, player, settings, library views
+├── Package.swift           # Swift Package Manager manifest
+└── README.md               # Documentation
+```
 
-### Method 2: Local Compilation (macOS or WSL)
-Fremio uses the `xtool` Swift compiler toolchain to build fast without complex Xcode project overhead.
+---
 
-1. Install `xtool` CLI using Homebrew:
+## Building the Native iOS App
+Windows cannot compile or sign native iOS apps locally. Use one of these options:
+- A Mac with Xcode.
+- A cloud Mac.
+- GitHub Actions for unsigned build artifacts.
+
+### Build with GitHub Actions
+The repository includes `.github/workflows/build-ipa.yml` which automatically:
+- Installs the `xtool` Darwin Swift SDK.
+- Builds the app for iPhone using Xcode.
+- Packages an unsigned IPA artifact.
+
+To get your IPA:
+1. Open the **Actions** tab on your GitHub repository.
+2. Select the latest workflow run.
+3. Download the artifact named `Fremio-unsigned-ipa`.
+
+### Build with xtool on macOS
+1. Install `xtool`:
    ```bash
    brew install xtool-org/tap/xtool
    ```
-2. Build the unsigned `.ipa` bundle in Release configuration:
+2. Build the unsigned IPA:
    ```bash
    xtool dev build --ipa --configuration release
    ```
-3. Retrieve your finished `.ipa` from the output directory!
+
+---
+
+## Signing and Sideloading
+The GitHub Action artifact is unsigned and cannot be installed directly on an iPhone without signing. 
+
+Recommended installation paths:
+- **TrollStore** (Recommended for unsigned IPAs on supported iOS versions).
+- **AltStore / Sideloadly** (For developer account/free Apple ID personal signing).
+- **MapleSign / Signulous** (Or other third-party certificate signing services).
+
+---
+
+## Development Notes
+The native app uses:
+- SwiftUI for the entire visual shell.
+- AVKit / AVPlayer for direct stream decoding.
+- URLSession for TMDB metadata query logic and VidVault API calls.
