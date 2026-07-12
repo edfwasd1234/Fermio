@@ -321,27 +321,27 @@ struct HeroBanner: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Backdrop Image with fallback gradient
-            ZStack {
-                if let backdropPath = item.backdropPath, !backdropPath.isEmpty {
-                    AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/original\(backdropPath)")) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(height: 360)
-                                .clipped()
-                        default:
-                            placeholderGradient
+            GeometryReader { geo in
+                ZStack {
+                    if let backdropPath = item.backdropPath, !backdropPath.isEmpty {
+                        AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/original\(backdropPath)")) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geo.size.width, height: 360)
+                                    .clipped()
+                            default:
+                                placeholderGradient(width: geo.size.width)
+                            }
                         }
+                    } else {
+                        placeholderGradient(width: geo.size.width)
                     }
-                } else {
-                    placeholderGradient
                 }
             }
             .frame(height: 360)
-            .frame(maxWidth: .infinity)
-            .clipped()
             
             // Shading and overlay for readability
             LinearGradient(
@@ -430,7 +430,7 @@ struct HeroBanner: View {
         }
     }
     
-    private var placeholderGradient: some View {
+    private func placeholderGradient(width: CGFloat) -> some View {
         LinearGradient(
             colors: [
                 Color(hex: item.posterColorHex),
@@ -440,6 +440,7 @@ struct HeroBanner: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+        .frame(width: width, height: 360)
     }
     
     private var isWatchlist: Bool {

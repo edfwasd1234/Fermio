@@ -157,6 +157,10 @@ final class StreamResolver: Sendable {
             if let fallbackUrl = try? await resolveFromFluxFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
                 return fallbackUrl
             }
+            // Fallback to Cineby.at API
+            if let fallbackUrl = try? await resolveFromCinebyFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
+                return fallbackUrl
+            }
             throw NSError(domain: "StreamResolver", code: 4, userInfo: [NSLocalizedDescriptionKey: "not found, please wait a little more for our team to put it on here."])
         }
         
@@ -216,6 +220,144 @@ final class StreamResolver: Sendable {
         return finalUrl
     }
     
+    private func resolveFromCinebyFallback(type: MediaType, tmdbId: String, season: Int, episode: Int) async throws -> URL {
+        guard let details = await fetchTMDBDetails(tmdbId: tmdbId, type: type) else {
+            throw NSError(domain: "StreamResolver", code: 10, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch TMDb details"])
+        }
+        
+        guard let seedUrl = URL(string: "https://api.wingsdatabase.com/seed?mediaId=\(tmdbId)") else {
+            throw URLError(.badURL)
+        }
+        
+        var seedRequest = URLRequest(url: seedUrl)
+        seedRequest.setValue("https://www.cineby.at/", forHTTPHeaderField: "Referer")
+        seedRequest.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
+        seedRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        
+        let (seedData, _) = try await URLSession.shared.data(for: seedRequest)
+        guard let seedJson = try? JSONSerialization.jsonObject(with: seedData) as? [String: Any],
+              let seed = seedJson["seed"] as? String else {
+            throw NSError(domain: "StreamResolver", code: 11, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch seed from wingsdatabase"])
+        }
+        
+        let inputToHash = "\(tmdbId)d486ae1ce6fdbe63b60bd1704541fcf0"
+        let hashValue = cHash(inputToHash)
+        let hashids = Hashids()
+        let b35ebba4 = hashids.encodeHex(hashValue)
+        
+        let encodedTitle = encodeURIComponent(details.title)
+        let typeString = type == .movie ? "movie" : "tv"
+        let sourcesUrlString = "https://api.wingsdatabase.com/mbx/sources-with-title?title=\(encodedTitle)&mediaType=\(typeString)&year=\(details.year)&totalSeasons=\(details.totalSeasons)&episodeId=\(episode)&seasonId=\(season)&tmdbId=\(tmdbId)&imdbId=\(details.imdbId)&enc=2&seed=\(seed)&b35ebba4=\(b35ebba4)"
+        
+        guard let sourcesUrl = URL(string: sourcesUrlString) else {
+            throw URLError(.badURL)
+        }
+        
+        var request = URLRequest(url: sourcesUrl)
+        request.setValue("*/*", forHTTPHeaderField: "accept")
+        request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "accept-language")
+        request.setValue("\"Not A(BiT;KB\";v=\"99\", \"Chromium\";v=\"121\"", forHTTPHeaderField: "sec-ch-ua")
+        request.setValue("?0", forHTTPHeaderField: "sec-ch-ua-mobile")
+        request.setValue("\"Windows\"", forHTTPHeaderField: "sec-ch-ua-platform")
+        request.setValue("empty", forHTTPHeaderField: "sec-fetch-dest")
+        request.setValue("cors", forHTTPHeaderField: "sec-fetch-mode")
+        request.setValue("cross-site", forHTTPHeaderField: "sec-fetch-site")
+        request.setValue("https://www.cineby.at/", forHTTPHeaderField: "Referer")
+        request.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        
+        let (sourcesData, _) = try await URLSession.shared.data(for: request)
+        
+        guard let encryptedBase64 = String(data: sourcesData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !encryptedBase64.isEmpty else {
+            throw NSError(domain: "StreamResolver", code: 12, userInfo: [NSLocalizedDescriptionKey: "Empty response from wingsdatabase"])
+        }
+        
+        let decryptedJsonString: String
+        do {
+            decryptedJsonString = try CinebyDecrypter.decrypt(encryptedBase64: encryptedBase64, seed: seed, mediaId: Int(tmdbId) ?? 0)
+        } catch {
+            if let plainJson = try? JSONSerialization.jsonObject(with: sourcesData) as? [String: Any],
+               let sources = plainJson["sources"] as? [[String: Any]], sources.isEmpty {
+                throw NSError(domain: "StreamResolver", code: 13, userInfo: [NSLocalizedDescriptionKey: "No sources found on Cineby fallback"])
+            }
+            throw error
+        }
+        
+        guard let decryptedData = decryptedJsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: decryptedData) as? [String: Any],
+              let sources = json["sources"] as? [[String: Any]] else {
+            throw NSError(domain: "StreamResolver", code: 14, userInfo: [NSLocalizedDescriptionKey: "Failed to parse decrypted sources JSON"])
+        }
+        
+        var mp4UrlString: String? = nil
+        for source in sources {
+            if let fileUrl = source["file"] as? String, !fileUrl.isEmpty {
+                if fileUrl.contains("/mp4/") || fileUrl.lowercased().hasSuffix(".mp4") || (source["type"] as? String)?.lowercased() == "mp4" {
+                    mp4UrlString = fileUrl
+                    break
+                }
+            }
+        }
+        
+        guard let finalRawUrl = mp4UrlString else {
+            throw NSError(domain: "StreamResolver", code: 15, userInfo: [NSLocalizedDescriptionKey: "No MP4 stream found on Cineby fallback"])
+        }
+        
+        let encodedVideoUrl = encodeURIComponent(finalRawUrl)
+        let finalStreamString = "https://vlaq11.site/\(encodedVideoUrl)"
+        
+        guard let finalUrl = URL(string: finalStreamString) else {
+            throw URLError(.badURL)
+        }
+        
+        return finalUrl
+    }
+    
+    private func cHash(_ input: String) -> String {
+        let keyXor = 95
+        return input.compactMap { $0.asciiValue }
+            .map { String(format: "%02x", Int($0) ^ keyXor) }
+            .joined()
+    }
+    
+    struct TMDBMovieData {
+        let title: String
+        let year: Int
+        let imdbId: String
+        let totalSeasons: Int
+    }
+    
+    private func fetchTMDBDetails(tmdbId: String, type: MediaType) async -> TMDBMovieData? {
+        let apiKey = UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
+        let path = type == .movie ? "movie/\(tmdbId)" : "tv/\(tmdbId)"
+        let urlString = "https://api.themoviedb.org/3/\(path)?api_key=\(apiKey)&append_to_response=external_ids"
+        guard let url = URL(string: urlString) else { return nil }
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let title = (json["title"] as? String) ?? (json["name"] as? String) ?? (json["original_title"] as? String) ?? ""
+                
+                let dateStr = (type == .movie ? json["release_date"] as? String : json["first_air_date"] as? String) ?? ""
+                let year: Int
+                if let firstPart = dateStr.split(separator: "-").first, let parsedYear = Int(firstPart) {
+                    year = parsedYear
+                } else {
+                    year = 2000
+                }
+                
+                let imdbId = (json["imdb_id"] as? String) ?? ((json["external_ids"] as? [String: Any])?["imdb_id"] as? String) ?? ""
+                let totalSeasons = (json["number_of_seasons"] as? Int) ?? 0
+                
+                return TMDBMovieData(title: title, year: year, imdbId: imdbId, totalSeasons: totalSeasons)
+            }
+        } catch {
+            print("Failed to fetch TMDB details for \(tmdbId): \(error)")
+        }
+        return nil
+    }
+    
     private func fetchImdbId(tmdbId: String, type: MediaType) async -> String? {
         let apiKey = UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
         let urlString: String
@@ -247,7 +389,6 @@ final class StreamResolver: Sendable {
     }
     
     private func encodeURIComponent(_ string: String) -> String {
-        // Mimic JavaScript encodeURIComponent by escaping all non-alphanumeric and non-standard symbols
         let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
         return string.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? string
     }

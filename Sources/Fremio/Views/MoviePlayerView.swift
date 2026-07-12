@@ -29,6 +29,7 @@ struct MoviePlayerView: View {
     let item: MediaItem
     var season: Int = 1
     var episode: Int = 1
+    var offlineUrl: URL? = nil
     @Environment(\.dismiss) var dismiss
     
     @State private var player: AVPlayer?
@@ -46,7 +47,7 @@ struct MoviePlayerView: View {
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         .scaleEffect(1.5)
                     
-                    Text("Resolving secure MP4 stream...")
+                    Text(offlineUrl != nil ? "Loading offline video..." : "Resolving secure MP4 stream...")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                     
@@ -140,6 +141,36 @@ struct MoviePlayerView: View {
     private func resolveAndPlay() {
         isLoading = true
         errorMessage = nil
+        
+        if let offlineUrl = offlineUrl {
+            let playerItem = AVPlayerItem(url: offlineUrl)
+            let avPlayer = AVPlayer(playerItem: playerItem)
+            self.player = avPlayer
+            
+            let savedPosition = getSavedPosition()
+            if savedPosition > 10 {
+                avPlayer.seek(to: CMTime(seconds: savedPosition, preferredTimescale: 1))
+            }
+            
+            let interval = CMTime(seconds: 5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+            self.timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak avPlayer] time in
+                guard let p = avPlayer, let currentItem = p.currentItem else { return }
+                let current = CMTimeGetSeconds(time)
+                let durationTime = currentItem.duration
+                guard durationTime.isValid else { return }
+                let total = CMTimeGetSeconds(durationTime)
+                guard total > 0 else { return }
+                
+                Task { @MainActor in
+                    self.saveProgress(current: current, total: total)
+                }
+            }
+            
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+            self.isLoading = false
+            return
+        }
         
         Task {
             do {

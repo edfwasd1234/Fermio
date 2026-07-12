@@ -256,7 +256,7 @@ struct MediaDetailView: View {
                     
                     // Actions Bar
                     if item.type == .movie {
-                        HStack(spacing: 15) {
+                        HStack(spacing: 12) {
                             Button {
                                 HapticManager.shared.notification(type: .success)
                                 selectedEpisode = 1
@@ -264,7 +264,7 @@ struct MediaDetailView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: "play.fill")
-                                    Text("Play Movie")
+                                    Text("Play")
                                 }
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.black)
@@ -272,6 +272,18 @@ struct MediaDetailView: View {
                                 .padding(.vertical, 14)
                                 .background(Color.white)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }
+                            
+                            // Download Button for Movies
+                            Button {
+                                HapticManager.shared.notification(type: .success)
+                                DownloadManager.shared.startDownload(item: item)
+                            } label: {
+                                Image(systemName: downloadStatusIcon(taskId: item.id))
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(downloadStatusColor(taskId: item.id))
+                                    .frame(width: 50, height: 50)
+                                    .liquidGlass(cornerRadius: 14, fillOpacity: 0.1)
                             }
                             
                             Button {
@@ -404,11 +416,7 @@ struct MediaDetailView: View {
                                 .padding(.vertical, 20)
                             } else {
                                 ForEach(episodes) { episode in
-                                    Button {
-                                        HapticManager.shared.notification(type: .success)
-                                        selectedEpisode = episode.episode_number
-                                        showPlayer = true
-                                    } label: {
+                                    HStack(spacing: 12) {
                                         HStack(spacing: 12) {
                                             // Episode thumbnail placeholder/icon
                                             ZStack {
@@ -447,20 +455,32 @@ struct MediaDetailView: View {
                                                         .multilineTextAlignment(.leading)
                                                 }
                                             }
-                                            
                                             Spacer()
-                                            
-                                            Image(systemName: "play.fill")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.white.opacity(0.8))
-                                                .padding(8)
+                                        }
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            HapticManager.shared.notification(type: .success)
+                                            selectedEpisode = episode.episode_number
+                                            showPlayer = true
+                                        }
+                                        
+                                        // Episode Download Button
+                                        let epTaskId = "\(item.id)-\(selectedSeason)-\(episode.episode_number)"
+                                        Button {
+                                            HapticManager.shared.impact(style: .medium)
+                                            DownloadManager.shared.startDownload(item: item, season: selectedSeason, episode: episode.episode_number)
+                                        } label: {
+                                            Image(systemName: downloadStatusIcon(taskId: epTaskId))
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundColor(downloadStatusColor(taskId: epTaskId))
+                                                .padding(10)
                                                 .background(Color.white.opacity(0.1))
                                                 .clipShape(Circle())
                                         }
-                                        .padding(10)
-                                        .liquidGlass(cornerRadius: 12, fillOpacity: 0.05)
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(10)
+                                    .liquidGlass(cornerRadius: 12, fillOpacity: 0.05)
                                 }
                                 .padding(.horizontal, 24)
                             }
@@ -603,5 +623,30 @@ struct MediaDetailView: View {
             UserDefaults.standard.set(data, forKey: "favorite_items")
             NotificationCenter.default.post(name: NSNotification.Name("FavoritesUpdated"), object: nil)
         }
+    }
+    
+    // Download UI Status Helpers
+    private func downloadStatusIcon(taskId: String) -> String {
+        if let task = DownloadManager.shared.tasks.first(where: { $0.id == taskId }) {
+            switch task.status {
+            case .completed: return "arrow.down.circle.fill"
+            case .downloading: return "arrow.down.and.line.horizontal"
+            case .failed: return "exclamationmark.circle"
+            case .pending: return "clock"
+            }
+        }
+        return "arrow.down.circle"
+    }
+    
+    private func downloadStatusColor(taskId: String) -> Color {
+        if let task = DownloadManager.shared.tasks.first(where: { $0.id == taskId }) {
+            switch task.status {
+            case .completed: return .cyan
+            case .downloading: return .yellow
+            case .failed: return .red
+            case .pending: return .gray
+            }
+        }
+        return .white
     }
 }
