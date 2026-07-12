@@ -137,6 +137,7 @@ struct HomeView: View {
                     .frame(height: 100)
             }
         }
+        .frame(maxWidth: .infinity)
         .onAppear {
             loadHomeData()
             loadContinueWatching()

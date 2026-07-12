@@ -38,6 +38,9 @@ struct GlassTabBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background(Color.black.opacity(0.001))
+        .contentShape(RoundedRectangle(cornerRadius: 32))
+        .onTapGesture {}
         // Apply liquid glassmorphic effect
         .liquidGlass(
             cornerRadius: 32,
@@ -110,6 +113,7 @@ struct TabBarButton: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
