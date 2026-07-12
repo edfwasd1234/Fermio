@@ -153,6 +153,10 @@ final class StreamResolver: Sendable {
         }
         
         guard let finalRawUrl = selectedEntry?.url else {
+            // Attempt resolving from independent Flux alternate server APIs directly!
+            if let fallbackUrl = try? await resolveFromFluxFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
+                return fallbackUrl
+            }
             throw NSError(domain: "StreamResolver", code: 4, userInfo: [NSLocalizedDescriptionKey: "not found, please wait a little more for our team to put it on here."])
         }
         
@@ -165,6 +169,72 @@ final class StreamResolver: Sendable {
         }
         
         return finalUrl
+    }
+    
+    private func resolveFromFluxFallback(type: MediaType, tmdbId: String, season: Int, episode: Int) async throws -> URL {
+        // 1. Fetch IMDb ID from TMDB
+        guard let imdbId = await fetchImdbId(tmdbId: tmdbId, type: type) else {
+            throw NSError(domain: "StreamResolver", code: 5, userInfo: [NSLocalizedDescriptionKey: "IMDb ID not found"])
+        }
+        
+        // 2. Query Flux 1 direct API (streamdata.vaplayer.ru)
+        let typeString = type == .movie ? "movie" : "tv"
+        var urlString = "https://streamdata.vaplayer.ru/api.php?imdb=\(imdbId)&type=\(typeString)"
+        if type == .show {
+            urlString += "&season=\(season)&episode=\(episode)"
+        }
+        
+        guard let url = URL(string: urlString) else {
+            throw URLError(.badURL)
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://nextgencloudfabric.com/", forHTTPHeaderField: "Referer")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let responseData = json["data"] as? [String: Any],
+              let streamUrls = responseData["stream_urls"] as? [String],
+              let firstStreamUrl = streamUrls.first else {
+            throw NSError(domain: "StreamResolver", code: 6, userInfo: [NSLocalizedDescriptionKey: "No streams found in Flux 1 alternate API"])
+        }
+        
+        // 3. Route through vlaq11.site proxy (like primary streams)
+        let encodedVideoUrl = encodeURIComponent(firstStreamUrl)
+        let finalStreamString = "https://vlaq11.site/\(encodedVideoUrl)"
+        
+        guard let finalUrl = URL(string: finalStreamString) else {
+            throw URLError(.badURL)
+        }
+        
+        return finalUrl
+    }
+    
+    private func fetchImdbId(tmdbId: String, type: MediaType) async -> String? {
+        let apiKey = UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
+        let urlString: String
+        if type == .movie {
+            urlString = "https://api.themoviedb.org/3/movie/\(tmdbId)?api_key=\(apiKey)"
+        } else {
+            urlString = "https://api.themoviedb.org/3/tv/\(tmdbId)/external_ids?api_key=\(apiKey)"
+        }
+        
+        guard let url = URL(string: urlString) else { return nil }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return json["imdb_id"] as? String
+            }
+        } catch {
+            print("Failed to fetch IMDb ID: \(error)")
+        }
+        return nil
     }
     
     private func parseResolution(_ value: Any?) -> Int {
