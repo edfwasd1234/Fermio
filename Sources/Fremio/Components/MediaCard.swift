@@ -182,36 +182,51 @@ struct MediaDetailView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
                     
-                    // Large Poster Illustration
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 24)
-                            .fill(Color.white.opacity(0.04))
-                            .frame(width: 200, height: 280)
-                            .liquidGlass(cornerRadius: 24, borderWidth: 1.0, glowColor: Color(hex: item.posterColorHex))
-                        
-                        ZStack {
-                            if let posterPath = item.posterPath, !posterPath.isEmpty {
-                                AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/w500\(posterPath)")) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    default:
-                                        placeholderBackground
-                                    }
-                                }
-                            } else {
-                                placeholderBackground
+                    // Large Poster Illustration or Inline Video Player (YouTube style)
+                    if let context = playbackContext {
+                        MoviePlayerView(
+                            item: context.mediaItem,
+                            season: context.season,
+                            episode: context.episode,
+                            onClose: {
+                                playbackContext = nil
                             }
+                        )
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .padding(.horizontal, 24)
+                        .shadow(color: Color(hex: item.posterColorHex).opacity(0.3), radius: 12)
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 24)
+                                .fill(Color.white.opacity(0.04))
+                                .frame(width: 200, height: 280)
+                                .liquidGlass(cornerRadius: 24, borderWidth: 1.0, glowColor: Color(hex: item.posterColorHex))
+                            
+                            ZStack {
+                                if let posterPath = item.posterPath, !posterPath.isEmpty {
+                                    AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/w500\(posterPath)")) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                        default:
+                                            placeholderBackground
+                                        }
+                                    }
+                                } else {
+                                    placeholderBackground
+                                }
+                            }
+                            .frame(width: 190, height: 270)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
                         }
-                        .frame(width: 190, height: 270)
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
-                    }
-                    .padding(.top, 10)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                            animateGlow.toggle()
+                        .padding(.top, 10)
+                        .onAppear {
+                            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                                animateGlow.toggle()
+                            }
                         }
                     }
                     
@@ -505,13 +520,6 @@ struct MediaDetailView: View {
                         .frame(height: 50)
                 }
             }
-        }
-        .fullScreenCover(item: $playbackContext) { context in
-            MoviePlayerView(
-                item: context.mediaItem,
-                season: context.season,
-                episode: context.episode
-            )
         }
         .onAppear {
             loadDetails()

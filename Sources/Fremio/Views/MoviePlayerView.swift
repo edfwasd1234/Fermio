@@ -30,6 +30,7 @@ struct MoviePlayerView: View {
     var season: Int = 1
     var episode: Int = 1
     var offlineUrl: URL? = nil
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) var dismiss
     
     @State private var player: AVPlayer?
@@ -75,7 +76,11 @@ struct MoviePlayerView: View {
                         .lineLimit(3)
                     
                     Button {
-                        dismiss()
+                        if let onClose = onClose {
+                            onClose()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Text("Close Player")
                             .font(.system(size: 14, weight: .bold))
@@ -108,7 +113,11 @@ struct MoviePlayerView: View {
                         HapticManager.shared.impact(style: .medium)
                         cleanupObserver()
                         player?.pause()
-                        dismiss()
+                        if let onClose = onClose {
+                            onClose()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 30))

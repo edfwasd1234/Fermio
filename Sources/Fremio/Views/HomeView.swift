@@ -333,6 +333,7 @@ struct HeroBanner: View {
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
+                                .frame(minWidth: 0, maxWidth: .infinity)
                                 .frame(height: 360)
                                 .clipped()
                         default:
@@ -343,6 +344,7 @@ struct HeroBanner: View {
                     placeholderGradient
                 }
             }
+            .frame(maxWidth: .infinity)
             .frame(height: 360)
             
             // Shading and overlay for readability
