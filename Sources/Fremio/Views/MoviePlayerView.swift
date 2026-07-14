@@ -220,7 +220,7 @@ struct MoviePlayerView: View {
                 await MainActor.run {
                     if isAnime, let group = playerItem.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
                         let languageCode = (dialogueMode == "Dubbed") ? "en-US" : "ja-JP"
-                        let options = AVMediaSelectionGroup.mediaSelectionOptions(withLocale: Locale(identifier: languageCode), from: group)
+                        let options = AVMediaSelectionGroup.mediaSelectionOptions(from: group.options, with: Locale(identifier: languageCode))
                         if let option = options.first {
                             playerItem.select(option, in: group)
                         }
