@@ -24,26 +24,29 @@ final class WCOTVResolver: Sendable {
     private let baseUrl = "https://www.wco.tv"
     
     func resolveAnimeStreams(title: String, season: Int, episode: Int) async throws -> [WCOTVStreamOption] {
-        // 1. Search for show slug
-        var showSlug = await searchAnimeSlug(title: title)
-        if showSlug == nil {
+        // 1. Search for show slugs
+        let showSlugs = await searchAnimeSlugs(title: title)
+        
+        var allSlugs = showSlugs
+        if allSlugs.isEmpty {
             // Fallback slug generation
-            showSlug = title.lowercased()
+            let fallback = title.lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { !$0.isEmpty }
                 .joined(separator: "-")
+            allSlugs = [fallback, "\(fallback)-dubbed", "\(fallback)-subbed", "\(fallback)-english-dubbed"]
         }
         
-        guard let slug = showSlug, !slug.isEmpty else {
-            return []
+        // 2. Fetch episode page URLs (Sub vs Dub) from all matching show slugs
+        var allLinkInfos: [WCOTVLinkInfo] = []
+        for slug in allSlugs {
+            let linkInfos = await fetchEpisodeUrls(showSlug: slug, episodeNumber: episode)
+            allLinkInfos.append(contentsOf: linkInfos)
         }
-        
-        // 2. Fetch episode page URLs (Sub vs Dub)
-        let linkInfos = await fetchEpisodeUrls(showSlug: slug, episodeNumber: episode)
         
         // 3. Extract streams for each available option
         var allStreams: [WCOTVStreamOption] = []
-        for info in linkInfos {
+        for info in allLinkInfos {
             let streams = await extractStreams(episodePageUrlString: info.url, lang: info.lang)
             allStreams.append(contentsOf: streams)
         }
@@ -51,8 +54,8 @@ final class WCOTVResolver: Sendable {
         return allStreams
     }
     
-    private func searchAnimeSlug(title: String) async -> String? {
-        guard let searchUrl = URL(string: "https://www.wco.tv/search") else { return nil }
+    private func searchAnimeSlugs(title: String) async -> [String] {
+        guard let searchUrl = URL(string: "https://www.wco.tv/search") else { return [] }
         var request = URLRequest(url: searchUrl)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -65,20 +68,26 @@ final class WCOTVResolver: Sendable {
         
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let html = String(data: data, encoding: .utf8) else {
-            return nil
+            return []
         }
         
         // Match anime slugs /anime/([^/"'\s]+)
-        guard let regex = try? NSRegularExpression(pattern: "/anime/([^/\"'\\s]+)", options: []) else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: "/anime/([^/\"'\\s]+)", options: []) else { return [] }
         let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
         let matches = regex.matches(in: html, options: [], range: nsRange)
         
+        var slugs: [String] = []
+        var seen = Set<String>()
         for match in matches {
             if let range = Range(match.range(at: 1), in: html) {
-                return String(html[range])
+                let slug = String(html[range]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if !seen.contains(slug) {
+                    seen.insert(slug)
+                    slugs.append(slug)
+                }
             }
         }
-        return nil
+        return Array(slugs.prefix(6))
     }
     
     struct WCOTVLinkInfo {
@@ -111,9 +120,29 @@ final class WCOTVResolver: Sendable {
             let combined = "\(href.lowercased()) \(text.lowercased())"
             guard combined.contains("episode") else { continue }
             
-            // Check if it matches our episode number
-            let pattern = "episode[- ]?\(episodeNumber)\\b"
-            if combined.range(of: pattern, options: .regularExpression) != nil {
+            // Numerical check for episode number to handle leading zeros (e.g. 01 matching 1)
+            var parsedEpisodeNum: Double? = nil
+            if let epRegex = try? NSRegularExpression(pattern: "episode[- ]?(\\d+(?:\\.\\d+)?)", options: [.caseInsensitive]) {
+                let nsCombined = NSRange(combined.startIndex..<combined.endIndex, in: combined)
+                if let match = epRegex.firstMatch(in: combined, options: [], range: nsCombined),
+                   let range = Range(match.range(at: 1), in: combined),
+                   let num = Double(combined[range]) {
+                    parsedEpisodeNum = num
+                }
+            }
+            
+            if parsedEpisodeNum == nil {
+                if let numRegex = try? NSRegularExpression(pattern: "(\\d+(?:\\.\\d+)?)", options: []) {
+                    let nsText = NSRange(text.startIndex..<text.endIndex, in: text)
+                    if let match = numRegex.firstMatch(in: text, options: [], range: nsText),
+                       let range = Range(match.range(at: 1), in: text),
+                       let num = Double(text[range]) {
+                        parsedEpisodeNum = num
+                    }
+                }
+            }
+            
+            if let parsedNum = parsedEpisodeNum, abs(parsedNum - Double(episodeNumber)) < 0.01 {
                 let isDub = combined.contains("dub") || combined.contains("dubbed")
                 let lang = isDub ? "Dubbed" : "Subbed"
                 options.append(WCOTVLinkInfo(url: href, lang: lang))

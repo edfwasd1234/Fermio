@@ -42,6 +42,10 @@ struct MoviePlayerView: View {
     @State private var availableStreams: [WCOTVStreamOption] = []
     @State private var selectedLanguage: String = "Subbed"
     @State private var selectedQuality: String = "1080p"
+    @State private var selectedServer: ServerOption = {
+        let saved = UserDefaults.standard.integer(forKey: "preferred_server")
+        return ServerOption(rawValue: saved) ?? .flux
+    }()
     
     var body: some View {
         ZStack {
@@ -122,8 +126,35 @@ struct MoviePlayerView: View {
                     
                     Spacer()
                     
-                    if !availableStreams.isEmpty {
-                        HStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        // Server Menu Selector
+                        Menu {
+                            ForEach(ServerOption.allCases) { server in
+                                Button {
+                                    switchServer(to: server)
+                                } label: {
+                                    HStack {
+                                        Text("\(server.displayName) (\(server.serverName))")
+                                        if selectedServer == server {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "server.rack")
+                                Text("\(selectedServer.displayName) (\(selectedServer.serverName))")
+                            }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.12))
+                            .clipShape(Capsule())
+                        }
+                        
+                        if !availableStreams.isEmpty {
                             // Dialogue Mode Menu Selector
                             Menu {
                                 ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
@@ -187,8 +218,8 @@ struct MoviePlayerView: View {
                                 .clipShape(Capsule())
                             }
                         }
-                        .padding(12)
                     }
+                    .padding(12)
                 }
                 Spacer()
             }
@@ -282,15 +313,22 @@ struct MoviePlayerView: View {
         }
     }
     
-    private func fallbackToDefault() {
+    private func switchServer(to server: ServerOption) {
+        HapticManager.shared.impact(style: .medium)
+        selectedServer = server
+        UserDefaults.standard.set(server.rawValue, forKey: "preferred_server")
+        
+        cleanupObserver()
+        player?.pause()
+        player = nil
+        
+        resolveAndPlay()
+    }
+    
+    private func loadDirectStream(resolver: @escaping () async throws -> URL) {
         Task {
             do {
-                let streamUrl = try await StreamResolver.shared.resolveStream(
-                    type: item.type,
-                    tmdbId: item.id,
-                    season: season,
-                    episode: episode
-                )
+                let streamUrl = try await resolver()
                 let headers: [String: String] = [
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "Referer": "https://vidvault.ru/"
@@ -317,9 +355,50 @@ struct MoviePlayerView: View {
         }
     }
     
+    private func loadWcoTvStream() {
+        Task {
+            do {
+                let streams = try await WCOTVResolver.shared.resolveAnimeStreams(
+                    title: item.title,
+                    season: season,
+                    episode: episode
+                )
+                
+                guard !streams.isEmpty else {
+                    await MainActor.run {
+                        self.errorMessage = "No streams found on WCOTV for this item."
+                        self.isLoading = false
+                    }
+                    return
+                }
+                
+                await MainActor.run {
+                    self.availableStreams = streams
+                    self.selectedLanguage = dialogueMode
+                    
+                    let langStreams = streams.filter { $0.language == dialogueMode }
+                    if let best = langStreams.sorted(by: { $0.quality > $1.quality }).first {
+                        self.selectedQuality = best.quality
+                        loadStreamOption(best)
+                    } else if let fallback = streams.sorted(by: { $0.quality > $1.quality }).first {
+                        self.selectedLanguage = fallback.language
+                        self.selectedQuality = fallback.quality
+                        loadStreamOption(fallback)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "WCOTV resolution failed: \(error.localizedDescription)"
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
     private func resolveAndPlay() {
         isLoading = true
         errorMessage = nil
+        availableStreams = []
         
         if let offlineUrl = offlineUrl {
             let playerItem = AVPlayerItem(url: offlineUrl)
@@ -334,46 +413,28 @@ struct MoviePlayerView: View {
             return
         }
         
-        let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
-        
-        if isAnime {
-            Task {
-                do {
-                    let streams = try await WCOTVResolver.shared.resolveAnimeStreams(
-                        title: item.title,
-                        season: season,
-                        episode: episode
-                    )
-                    
-                    guard !streams.isEmpty else {
-                        print("No streams found on WCOTV. Falling back to default resolver.")
-                        await MainActor.run { fallbackToDefault() }
-                        return
-                    }
-                    
-                    await MainActor.run {
-                        self.availableStreams = streams
-                        self.selectedLanguage = dialogueMode
-                        
-                        let langStreams = streams.filter { $0.language == dialogueMode }
-                        if let best = langStreams.sorted(by: { $0.quality > $1.quality }).first {
-                            self.selectedQuality = best.quality
-                            loadStreamOption(best)
-                        } else if let fallback = streams.sorted(by: { $0.quality > $1.quality }).first {
-                            self.selectedLanguage = fallback.language
-                            self.selectedQuality = fallback.quality
-                            loadStreamOption(fallback)
-                        }
-                    }
-                } catch {
-                    print("WCOTV resolution failed: \(error). Falling back.")
-                    await MainActor.run { fallbackToDefault() }
-                }
+        switch selectedServer {
+        case .flux:
+            loadDirectStream {
+                try await StreamResolver.shared.resolveFlux(
+                    type: item.type,
+                    tmdbId: item.id,
+                    season: season,
+                    episode: episode
+                )
             }
-            return
+        case .cineby:
+            loadDirectStream {
+                try await StreamResolver.shared.resolveCineby(
+                    type: item.type,
+                    tmdbId: item.id,
+                    season: season,
+                    episode: episode
+                )
+            }
+        case .wcoTv:
+            loadWcoTvStream()
         }
-        
-        fallbackToDefault()
     }
     
     // Watch Progress Storage Helpers

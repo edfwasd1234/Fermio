@@ -2,6 +2,30 @@ import Foundation
 import AVFoundation
 import AVKit
 
+enum ServerOption: Int, CaseIterable, Identifiable, Codable {
+    case flux = 1
+    case cineby = 2
+    case wcoTv = 3
+    
+    var id: Int { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .flux: return "Server 1"
+        case .cineby: return "Server 2"
+        case .wcoTv: return "Server 3"
+        }
+    }
+    
+    var serverName: String {
+        switch self {
+        case .flux: return "Flux"
+        case .cineby: return "Cineby"
+        case .wcoTv: return "WcoTv"
+        }
+    }
+}
+
 final class StreamResolver: Sendable {
     static let shared = StreamResolver()
     
@@ -19,6 +43,14 @@ final class StreamResolver: Sendable {
     ///   - episode: The episode number (default is 1)
     /// - Returns: A URL for the direct proxy stream
     func resolveStream(type: MediaType, tmdbId: String, season: Int = 1, episode: Int = 1) async throws -> URL {
+        return try await resolveFlux(type: type, tmdbId: tmdbId, season: season, episode: episode)
+    }
+    
+    func resolveCineby(type: MediaType, tmdbId: String, season: Int = 1, episode: Int = 1) async throws -> URL {
+        return try await resolveFromCinebyFallback(type: type, tmdbId: tmdbId, season: season, episode: episode)
+    }
+    
+    func resolveFlux(type: MediaType, tmdbId: String, season: Int = 1, episode: Int = 1) async throws -> URL {
         // 1. Fetch token from get-token
         guard let tokenUrl = URL(string: "https://vidvault.ru/api/get-token") else {
             throw URLError(.badURL)
