@@ -400,7 +400,7 @@ final class StreamResolver: Sendable {
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue(referer, forHTTPHeaderField: "Referer")
         
-        class RedirectHandler: NSObject, URLSessionTaskDelegate {
+        final class RedirectHandler: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
                 completionHandler(nil)
             }
@@ -443,7 +443,9 @@ final class StreamResolver: Sendable {
                     "Referer": resolvedReferer
                 ]
                 let asset = AVURLAsset(url: resolvedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                return AVPlayerItem(asset: asset)
+                return await MainActor.run {
+                    AVPlayerItem(asset: asset)
+                }
             }
             throw NSError(domain: "StreamResolver", code: 20, userInfo: [NSLocalizedDescriptionKey: "No streams found for this anime episode on WCO.tv"])
         }
@@ -456,7 +458,9 @@ final class StreamResolver: Sendable {
         let subbedAsset = AVURLAsset(url: subbedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": subbedHeaders])
         
         guard let dubbed = dubbedOption else {
-            return AVPlayerItem(asset: subbedAsset)
+            return await MainActor.run {
+                AVPlayerItem(asset: subbedAsset)
+            }
         }
         
         let (dubbedUrl, dubbedReferer) = await getFinalStreamUrl(from: dubbed.url, referer: dubbed.referer)
@@ -496,6 +500,8 @@ final class StreamResolver: Sendable {
             compAudio2.extendedLanguageTag = "en-US"
         }
         
-        return AVPlayerItem(asset: composition)
+        return await MainActor.run {
+            AVPlayerItem(asset: composition)
+        }
     }
 }
