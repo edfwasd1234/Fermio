@@ -181,22 +181,49 @@ struct MoviePlayerView: View {
             return
         }
         
+        let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
+        
         Task {
             do {
-                let streamUrl = try await StreamResolver.shared.resolveStream(
-                    type: item.type,
-                    tmdbId: item.id,
-                    season: season,
-                    episode: episode
-                )
-                
-                await MainActor.run {
+                let playerItem: AVPlayerItem
+                if isAnime {
+                    do {
+                        playerItem = try await StreamResolver.shared.resolveAnimeComposition(
+                            title: item.title,
+                            season: season,
+                            episode: episode
+                        )
+                    } catch {
+                        print("WCOTV resolution failed: \(error). Falling back to default resolver.")
+                        let streamUrl = try await StreamResolver.shared.resolveStream(
+                            type: item.type,
+                            tmdbId: item.id,
+                            season: season,
+                            episode: episode
+                        )
+                        let headers: [String: String] = [
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                            "Referer": "https://vidvault.ru/"
+                        ]
+                        let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                        playerItem = AVPlayerItem(asset: asset)
+                    }
+                } else {
+                    let streamUrl = try await StreamResolver.shared.resolveStream(
+                        type: item.type,
+                        tmdbId: item.id,
+                        season: season,
+                        episode: episode
+                    )
                     let headers: [String: String] = [
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                         "Referer": "https://vidvault.ru/"
                     ]
                     let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                    let playerItem = AVPlayerItem(asset: asset)
+                    playerItem = AVPlayerItem(asset: asset)
+                }
+                
+                await MainActor.run {
                     let avPlayer = AVPlayer(playerItem: playerItem)
                     self.player = avPlayer
                     

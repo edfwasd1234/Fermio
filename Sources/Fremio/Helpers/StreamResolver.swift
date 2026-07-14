@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import AVKit
 
 final class StreamResolver: Sendable {
     static let shared = StreamResolver()
@@ -240,7 +242,7 @@ final class StreamResolver: Sendable {
             throw NSError(domain: "StreamResolver", code: 11, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch seed from wingsdatabase"])
         }
         
-        let inputToHash = "\(tmdbId)d486ae1ce6fdbe63b60bd1704541fcf0"
+        let inputToHash = "\(tmdbId)486ae1ce6fdbe63b60bd1704541fcf0"
         let hashValue = cHash(inputToHash)
         let hashids = Hashids()
         let b35ebba4 = hashids.encodeHex(hashValue)
@@ -391,5 +393,73 @@ final class StreamResolver: Sendable {
     private func encodeURIComponent(_ string: String) -> String {
         let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
         return string.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? string
+    }
+    
+    /// Resolves an Anime to a player item with native Subbed (Japanese) and Dubbed (English) audio tracks.
+    func resolveAnimeComposition(title: String, season: Int, episode: Int) async throws -> AVPlayerItem {
+        let streams = try await WCOTVResolver.shared.resolveAnimeStreams(title: title, season: season, episode: episode)
+        
+        let subbedOption = streams.filter { $0.language == "Subbed" }.sorted(by: { $0.quality > $1.quality }).first
+        let dubbedOption = streams.filter { $0.language == "Dubbed" }.sorted(by: { $0.quality > $1.quality }).first
+        
+        guard let subbed = subbedOption else {
+            if let dubbed = dubbedOption {
+                let headers: [String: String] = [
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": dubbed.referer
+                ]
+                let asset = AVURLAsset(url: dubbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                return AVPlayerItem(asset: asset)
+            }
+            throw NSError(domain: "StreamResolver", code: 20, userInfo: [NSLocalizedDescriptionKey: "No streams found for this anime episode on WCO.tv"])
+        }
+        
+        let subbedHeaders: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": subbed.referer
+        ]
+        let subbedAsset = AVURLAsset(url: subbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": subbedHeaders])
+        
+        guard let dubbed = dubbedOption else {
+            return AVPlayerItem(asset: subbedAsset)
+        }
+        
+        let dubbedHeaders: [String: String] = [
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": dubbed.referer
+        ]
+        let dubbedAsset = AVURLAsset(url: dubbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": dubbedHeaders])
+        
+        let composition = AVMutableComposition()
+        
+        // Load properties synchronously to maximize compatibility across compiler versions
+        let subbedTracks = subbedAsset.tracks
+        let dubbedTracks = dubbedAsset.tracks
+        let duration = subbedAsset.duration
+        let timeRange = CMTimeRange(start: .zero, duration: duration)
+        
+        // Add Video Track (from Subbed video)
+        if let subbedVideo = subbedTracks.first(where: { $0.mediaType == .video }),
+           let compVideo = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            try compVideo.insertTimeRange(timeRange, of: subbedVideo, at: .zero)
+        }
+        
+        // Add Subbed (Japanese) Audio Track
+        if let subbedAudio = subbedTracks.first(where: { $0.mediaType == .audio }),
+           let compAudio1 = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            try compAudio1.insertTimeRange(timeRange, of: subbedAudio, at: .zero)
+            compAudio1.extendedLanguageTag = "ja-JP"
+        }
+        
+        // Add Dubbed (English) Audio Track
+        if let dubbedAudio = dubbedTracks.first(where: { $0.mediaType == .audio }),
+           let compAudio2 = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            let dubbedDuration = dubbedAsset.duration
+            let dubbedTimeRange = CMTimeRange(start: .zero, duration: dubbedDuration)
+            try compAudio2.insertTimeRange(dubbedTimeRange, of: dubbedAudio, at: .zero)
+            compAudio2.extendedLanguageTag = "en-US"
+        }
+        
+        return AVPlayerItem(asset: composition)
     }
 }
