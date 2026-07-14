@@ -29,6 +29,7 @@ struct MoviePlayerView: View {
     let item: MediaItem
     var season: Int = 1
     var episode: Int = 1
+    var dialogueMode: String = "Subbed"
     var offlineUrl: URL? = nil
     var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) var dismiss
@@ -59,60 +60,49 @@ struct MoviePlayerView: View {
                 .padding(30)
                 .liquidGlass(cornerRadius: 20, fillOpacity: 0.1)
                 .padding(24)
-            } else if let errorMessage = errorMessage {
-                VStack(spacing: 20) {
+            } else if let error = errorMessage {
+                VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 44))
+                        .font(.system(size: 42))
                         .foregroundColor(.orange)
                     
                     Text("Playback Error")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                     
-                    Text(errorMessage)
+                    Text(error)
                         .font(.system(size: 14))
                         .foregroundColor(.gray)
                         .multilineTextAlignment(.center)
-                        .lineLimit(3)
+                        .padding(.horizontal, 24)
                     
                     Button {
-                        if let onClose = onClose {
-                            onClose()
-                        } else {
-                            dismiss()
-                        }
+                        resolveAndPlay()
                     } label: {
-                        Text("Close Player")
-                            .font(.system(size: 14, weight: .bold))
+                        Text("Retry Connection")
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.black)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 12)
                             .background(Color.white)
-                            .clipShape(Capsule())
+                            .cornerRadius(12)
                     }
                 }
                 .padding(30)
-                .liquidGlass(cornerRadius: 20, fillOpacity: 0.1)
-                .padding(24)
-            } else if let player = player {
-                NativeVideoPlayer(player: player)
+                .liquidGlass(cornerRadius: 24)
+            } else if let avPlayer = player {
+                NativeVideoPlayer(player: avPlayer)
                     .ignoresSafeArea()
-                    .onAppear {
-                        player.play()
-                    }
-                    .onDisappear {
-                        cleanupObserver()
-                        player.pause()
-                    }
             }
             
-            // Close Button overlay
+            // Close Button
             VStack {
                 HStack {
                     Button {
                         HapticManager.shared.impact(style: .medium)
                         cleanupObserver()
                         player?.pause()
+                        player = nil
                         if let onClose = onClose {
                             onClose()
                         } else {
@@ -120,9 +110,9 @@ struct MoviePlayerView: View {
                         }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 30))
+                            .font(.system(size: 24))
                             .foregroundColor(.white.opacity(0.6))
-                            .hoverEffect()
+                            .padding(12)
                     }
                     Spacer()
                 }
@@ -206,7 +196,9 @@ struct MoviePlayerView: View {
                             "Referer": "https://vidvault.ru/"
                         ]
                         let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                        playerItem = AVPlayerItem(asset: asset)
+                        playerItem = await MainActor.run {
+                            AVPlayerItem(asset: asset)
+                        }
                     }
                 } else {
                     let streamUrl = try await StreamResolver.shared.resolveStream(
@@ -220,10 +212,20 @@ struct MoviePlayerView: View {
                         "Referer": "https://vidvault.ru/"
                     ]
                     let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                    playerItem = AVPlayerItem(asset: asset)
+                    playerItem = await MainActor.run {
+                        AVPlayerItem(asset: asset)
+                    }
                 }
                 
                 await MainActor.run {
+                    if isAnime, let group = playerItem.asset.mediaSelectionGroup(for: .audible) {
+                        let languageCode = (dialogueMode == "Dubbed") ? "en-US" : "ja-JP"
+                        let options = AVMediaSelectionGroup.mediaSelectionOptions(withLocale: Locale(identifier: languageCode), from: group)
+                        if let option = options.first {
+                            playerItem.select(option, in: group)
+                        }
+                    }
+                    
                     let avPlayer = AVPlayer(playerItem: playerItem)
                     self.player = avPlayer
                     

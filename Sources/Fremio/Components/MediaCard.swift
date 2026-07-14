@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct PlaybackContext: Identifiable {
-    var id: String { "\(mediaItem.id)-\(season)-\(episode)" }
+    var id: String { "\(mediaItem.id)-\(season)-\(episode)-\(dialogueMode)" }
     let mediaItem: MediaItem
     let season: Int
     let episode: Int
+    var dialogueMode: String = "Subbed"
 }
 
 /// A premium glassmorphic card component representing a Movie or Show.
@@ -154,6 +155,7 @@ struct MediaDetailView: View {
     @State private var selectedEpisode: Int = 1
     @State private var animateGlow = false
     @State private var playbackContext: PlaybackContext? = nil
+    @State private var dialogueMode: String = "Subbed"
     
     private var isWatchlist: Bool {
         watchlistContains(id: item.id, type: item.type)
@@ -188,6 +190,7 @@ struct MediaDetailView: View {
                             item: context.mediaItem,
                             season: context.season,
                             episode: context.episode,
+                            dialogueMode: context.dialogueMode,
                             onClose: {
                                 playbackContext = nil
                             }
@@ -279,13 +282,25 @@ struct MediaDetailView: View {
                     
                     // Actions Bar
                     if item.type == .movie {
+                        let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
+                        if isAnime {
+                            Picker("Dialogue Mode", selection: $dialogueMode) {
+                                Text("Subbed").tag("Subbed")
+                                Text("Dubbed").tag("Dubbed")
+                            }
+                            .pickerStyle(SegmentedPickerStyle())
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 5)
+                        }
+                        
                         HStack(spacing: 12) {
                             Button {
                                 HapticManager.shared.notification(type: .success)
                                 playbackContext = PlaybackContext(
                                     mediaItem: detailedItem ?? item,
                                     season: 1,
-                                    episode: 1
+                                    episode: 1,
+                                    dialogueMode: dialogueMode
                                 )
                             } label: {
                                 HStack {
@@ -432,6 +447,17 @@ struct MediaDetailView: View {
                             }
                             .padding(.horizontal, 24)
                             
+                            let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
+                            if isAnime {
+                                Picker("Dialogue Mode", selection: $dialogueMode) {
+                                    Text("Subbed").tag("Subbed")
+                                    Text("Dubbed").tag("Dubbed")
+                                }
+                                .pickerStyle(SegmentedPickerStyle())
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 5)
+                            }
+                            
                             if isEpisodesLoading {
                                 HStack {
                                     Spacer()
@@ -489,7 +515,8 @@ struct MediaDetailView: View {
                                             playbackContext = PlaybackContext(
                                                 mediaItem: detailedItem ?? item,
                                                 season: selectedSeason,
-                                                episode: episode.episode_number
+                                                episode: episode.episode_number,
+                                                dialogueMode: dialogueMode
                                             )
                                         }
                                         
