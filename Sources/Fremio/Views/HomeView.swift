@@ -388,7 +388,7 @@ struct HeroBanner: View {
                 HStack(spacing: 12) {
                     Button {
                         HapticManager.shared.notification(type: .success)
-                        showPlayer = true
+                        playbackContext = PlaybackContext(mediaItem: item, season: 1, episode: 1)
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
