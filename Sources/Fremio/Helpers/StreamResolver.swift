@@ -395,6 +395,39 @@ final class StreamResolver: Sendable {
         return string.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? string
     }
     
+    private func getFinalStreamUrl(from url: URL, referer: String) async -> (url: URL, referer: String) {
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue(referer, forHTTPHeaderField: "Referer")
+        
+        class RedirectHandler: NSObject, URLSessionTaskDelegate {
+            func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+                completionHandler(nil)
+            }
+        }
+        
+        let session = URLSession(configuration: .default, delegate: RedirectHandler(), delegateQueue: nil)
+        
+        do {
+            let (_, response) = try await session.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse,
+               (httpResponse.statusCode == 302 || httpResponse.statusCode == 301),
+               let locationStr = httpResponse.allHeaderFields["Location"] as? String ?? httpResponse.allHeaderFields["location"] as? String,
+               let locationUrl = URL(string: locationStr) {
+                
+                if locationStr.contains("//.wcostream.com") {
+                    return (url, referer)
+                }
+                
+                return (locationUrl, referer)
+            }
+        } catch {
+            print("Failed to pre-resolve stream redirect: \(error)")
+        }
+        
+        return (url, referer)
+    }
+    
     /// Resolves an Anime to a player item with native Subbed (Japanese) and Dubbed (English) audio tracks.
     func resolveAnimeComposition(title: String, season: Int, episode: Int) async throws -> AVPlayerItem {
         let streams = try await WCOTVResolver.shared.resolveAnimeStreams(title: title, season: season, episode: episode)
@@ -404,31 +437,34 @@ final class StreamResolver: Sendable {
         
         guard let subbed = subbedOption else {
             if let dubbed = dubbedOption {
+                let (resolvedUrl, resolvedReferer) = await getFinalStreamUrl(from: dubbed.url, referer: dubbed.referer)
                 let headers: [String: String] = [
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Referer": dubbed.referer
+                    "Referer": resolvedReferer
                 ]
-                let asset = AVURLAsset(url: dubbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                let asset = AVURLAsset(url: resolvedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
                 return AVPlayerItem(asset: asset)
             }
             throw NSError(domain: "StreamResolver", code: 20, userInfo: [NSLocalizedDescriptionKey: "No streams found for this anime episode on WCO.tv"])
         }
         
+        let (subbedUrl, subbedReferer) = await getFinalStreamUrl(from: subbed.url, referer: subbed.referer)
         let subbedHeaders: [String: String] = [
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": subbed.referer
+            "Referer": subbedReferer
         ]
-        let subbedAsset = AVURLAsset(url: subbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": subbedHeaders])
+        let subbedAsset = AVURLAsset(url: subbedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": subbedHeaders])
         
         guard let dubbed = dubbedOption else {
             return AVPlayerItem(asset: subbedAsset)
         }
         
+        let (dubbedUrl, dubbedReferer) = await getFinalStreamUrl(from: dubbed.url, referer: dubbed.referer)
         let dubbedHeaders: [String: String] = [
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": dubbed.referer
+            "Referer": dubbedReferer
         ]
-        let dubbedAsset = AVURLAsset(url: dubbed.url, options: ["AVURLAssetHTTPHeaderFieldsKey": dubbedHeaders])
+        let dubbedAsset = AVURLAsset(url: dubbedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": dubbedHeaders])
         
         let composition = AVMutableComposition()
         
