@@ -472,10 +472,13 @@ final class StreamResolver: Sendable {
         
         let composition = AVMutableComposition()
         
-        // Load properties synchronously to maximize compatibility across compiler versions
-        let subbedTracks = subbedAsset.tracks
-        let dubbedTracks = dubbedAsset.tracks
-        let duration = subbedAsset.duration
+        // Load properties asynchronously to ensure they are populated before constructing composition
+        guard let subbedTracks = try? await subbedAsset.load(.tracks),
+              let duration = try? await subbedAsset.load(.duration) else {
+            throw NSError(domain: "StreamResolver", code: 21, userInfo: [NSLocalizedDescriptionKey: "Failed to load subbed anime tracks"])
+        }
+        
+        let dubbedTracks = (try? await dubbedAsset.load(.tracks)) ?? []
         let timeRange = CMTimeRange(start: .zero, duration: duration)
         
         // Add Video Track (from Subbed video)
@@ -494,7 +497,7 @@ final class StreamResolver: Sendable {
         // Add Dubbed (English) Audio Track
         if let dubbedAudio = dubbedTracks.first(where: { $0.mediaType == .audio }),
            let compAudio2 = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let dubbedDuration = dubbedAsset.duration
+            let dubbedDuration = (try? await dubbedAsset.load(.duration)) ?? duration
             let dubbedTimeRange = CMTimeRange(start: .zero, duration: dubbedDuration)
             try compAudio2.insertTimeRange(dubbedTimeRange, of: dubbedAudio, at: .zero)
             compAudio2.extendedLanguageTag = "en-US"
