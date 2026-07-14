@@ -39,6 +39,10 @@ struct MoviePlayerView: View {
     @State private var errorMessage: String?
     @State private var timeObserver: Any?
     
+    @State private var availableStreams: [WCOTVStreamOption] = []
+    @State private var selectedLanguage: String = "Subbed"
+    @State private var selectedQuality: String = "1080p"
+    
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -95,9 +99,10 @@ struct MoviePlayerView: View {
                     .ignoresSafeArea()
             }
             
-            // Close Button
+            // Top Controls Overlay
             VStack {
-                HStack {
+                HStack(alignment: .center) {
+                    // Close Button
                     Button {
                         HapticManager.shared.impact(style: .medium)
                         cleanupObserver()
@@ -114,12 +119,81 @@ struct MoviePlayerView: View {
                             .foregroundColor(.white.opacity(0.6))
                             .padding(12)
                     }
+                    
                     Spacer()
+                    
+                    if !availableStreams.isEmpty {
+                        HStack(spacing: 10) {
+                            // Dialogue Mode Menu Selector
+                            Menu {
+                                ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
+                                    Button {
+                                        HapticManager.shared.impact(style: .medium)
+                                        self.selectedLanguage = lang
+                                        if let best = availableStreams.filter({ $0.language == lang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == lang }).sorted(by: { $0.quality > $1.quality }).first {
+                                            self.selectedQuality = best.quality
+                                            loadStreamOption(best)
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(lang)
+                                            if selectedLanguage == lang {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                                    Text(selectedLanguage)
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.white.opacity(0.12))
+                                .clipShape(Capsule())
+                            }
+                            
+                            // Quality Menu Selector
+                            Menu {
+                                ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
+                                    Button {
+                                        HapticManager.shared.impact(style: .medium)
+                                        self.selectedQuality = qual
+                                        if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == qual }) {
+                                            loadStreamOption(option)
+                                        }
+                                    } label: {
+                                        HStack {
+                                            Text(qual)
+                                            if selectedQuality == qual {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "gearshape.fill")
+                                    Text(selectedQuality)
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.white.opacity(0.12))
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .padding(12)
+                    }
                 }
                 Spacer()
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -137,120 +211,99 @@ struct MoviePlayerView: View {
         }
     }
     
-    private func resolveAndPlay() {
+    private func loadStreamOption(_ option: WCOTVStreamOption) {
         isLoading = true
         errorMessage = nil
         
-        if let offlineUrl = offlineUrl {
-            let playerItem = AVPlayerItem(url: offlineUrl)
-            let avPlayer = AVPlayer(playerItem: playerItem)
-            self.player = avPlayer
-            
-            let savedPosition = getSavedPosition()
-            if savedPosition > 10 {
-                avPlayer.seek(to: CMTime(seconds: savedPosition, preferredTimescale: 1))
-            }
-            
-            let interval = CMTime(seconds: 5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-            self.timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak avPlayer] time in
-                guard let p = avPlayer, let currentItem = p.currentItem else { return }
-                let current = CMTimeGetSeconds(time)
-                let durationTime = currentItem.duration
-                guard durationTime.isValid else { return }
-                let total = CMTimeGetSeconds(durationTime)
-                guard total > 0 else { return }
-                
-                Task { @MainActor in
-                    self.saveProgress(current: current, total: total)
-                }
-            }
-            
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            try? AVAudioSession.sharedInstance().setActive(true)
-            self.isLoading = false
-            return
-        }
-        
-        let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
+        let savedPosition = getSavedPosition()
+        cleanupObserver()
+        player?.pause()
         
         Task {
-            do {
-                let playerItem: AVPlayerItem
-                if isAnime {
-                    do {
-                        playerItem = try await StreamResolver.shared.resolveAnimeComposition(
-                            title: item.title,
-                            season: season,
-                            episode: episode
-                        )
-                    } catch {
-                        print("WCOTV resolution failed: \(error). Falling back to default resolver.")
-                        let streamUrl = try await StreamResolver.shared.resolveStream(
-                            type: item.type,
-                            tmdbId: item.id,
-                            season: season,
-                            episode: episode
-                        )
-                        let headers: [String: String] = [
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                            "Referer": "https://vidvault.ru/"
-                        ]
-                        let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                        playerItem = await MainActor.run {
-                            AVPlayerItem(asset: asset)
-                        }
-                    }
-                } else {
-                    let streamUrl = try await StreamResolver.shared.resolveStream(
-                        type: item.type,
-                        tmdbId: item.id,
-                        season: season,
-                        episode: episode
-                    )
-                    let headers: [String: String] = [
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "Referer": "https://vidvault.ru/"
-                    ]
-                    let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                    playerItem = await MainActor.run {
-                        AVPlayerItem(asset: asset)
-                    }
-                }
-                
+            let (resolvedUrl, resolvedReferer) = await StreamResolver.shared.getFinalStreamUrl(from: option.url, referer: option.referer)
+            let headers: [String: String] = [
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": resolvedReferer
+            ]
+            let asset = AVURLAsset(url: resolvedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            
+            guard let _ = try? await asset.load(.tracks),
+                  let _ = try? await asset.load(.duration) else {
                 await MainActor.run {
-                    if isAnime, let group = playerItem.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
-                        let languageCode = (dialogueMode == "Dubbed") ? "en-US" : "ja-JP"
-                        let options = AVMediaSelectionGroup.mediaSelectionOptions(from: group.options, with: Locale(identifier: languageCode))
-                        if let option = options.first {
-                            playerItem.select(option, in: group)
-                        }
+                    self.errorMessage = "Failed to load streaming options for \(option.language) (\(option.quality))."
+                    self.isLoading = false
+                }
+                return
+            }
+            
+            await MainActor.run {
+                let playerItem = AVPlayerItem(asset: asset)
+                if let p = self.player {
+                    p.replaceCurrentItem(with: playerItem)
+                    if savedPosition > 10 {
+                        p.seek(to: CMTime(seconds: savedPosition, preferredTimescale: 1))
                     }
-                    
+                    setupObserver(p)
+                    p.play()
+                } else {
                     let avPlayer = AVPlayer(playerItem: playerItem)
                     self.player = avPlayer
+                    setupObserver(avPlayer)
+                    avPlayer.play()
+                }
+                
+                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                try? AVAudioSession.sharedInstance().setActive(true)
+                self.isLoading = false
+            }
+        }
+    }
+    
+    private func setupObserver(_ avPlayer: AVPlayer) {
+        // Restore watch progress if not already seeking
+        let savedPosition = getSavedPosition()
+        if savedPosition > 10 && avPlayer.currentTime().seconds < 5 {
+            avPlayer.seek(to: CMTime(seconds: savedPosition, preferredTimescale: 1))
+        }
+        
+        // Manage periodic watcher progress saves (every 5 seconds)
+        let interval = CMTime(seconds: 5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
+        self.timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak avPlayer] time in
+            guard let p = avPlayer, let currentItem = p.currentItem else { return }
+            let current = CMTimeGetSeconds(time)
+            let durationTime = currentItem.duration
+            guard durationTime.isValid else { return }
+            let total = CMTimeGetSeconds(durationTime)
+            guard total > 0 else { return }
+            
+            Task { @MainActor in
+                self.saveProgress(current: current, total: total)
+            }
+        }
+    }
+    
+    private func fallbackToDefault() {
+        Task {
+            do {
+                let streamUrl = try await StreamResolver.shared.resolveStream(
+                    type: item.type,
+                    tmdbId: item.id,
+                    season: season,
+                    episode: episode
+                )
+                let headers: [String: String] = [
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://vidvault.ru/"
+                ]
+                let asset = AVURLAsset(url: streamUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                
+                await MainActor.run {
+                    let playerItem = AVPlayerItem(asset: asset)
+                    let avPlayer = AVPlayer(playerItem: playerItem)
+                    self.player = avPlayer
+                    setupObserver(avPlayer)
+                    avPlayer.play()
                     
-                    // Restore watch progress
-                    let savedPosition = getSavedPosition()
-                    if savedPosition > 10 {
-                        avPlayer.seek(to: CMTime(seconds: savedPosition, preferredTimescale: 1))
-                    }
-                    
-                    // Manage periodic watcher progress saves (every 5 seconds)
-                    let interval = CMTime(seconds: 5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-                    self.timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak avPlayer] time in
-                        guard let p = avPlayer, let currentItem = p.currentItem else { return }
-                        let current = CMTimeGetSeconds(time)
-                        let durationTime = currentItem.duration
-                        guard durationTime.isValid else { return }
-                        let total = CMTimeGetSeconds(durationTime)
-                        guard total > 0 else { return }
-                        
-                        Task { @MainActor in
-                            self.saveProgress(current: current, total: total)
-                        }
-                    }
-                    
-                    // Request audio session management
                     try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                     try? AVAudioSession.sharedInstance().setActive(true)
                     self.isLoading = false
@@ -262,6 +315,65 @@ struct MoviePlayerView: View {
                 }
             }
         }
+    }
+    
+    private func resolveAndPlay() {
+        isLoading = true
+        errorMessage = nil
+        
+        if let offlineUrl = offlineUrl {
+            let playerItem = AVPlayerItem(url: offlineUrl)
+            let avPlayer = AVPlayer(playerItem: playerItem)
+            self.player = avPlayer
+            setupObserver(avPlayer)
+            avPlayer.play()
+            
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+            self.isLoading = false
+            return
+        }
+        
+        let isAnime = item.genre.lowercased().contains("anime") || item.genre.lowercased().contains("animation")
+        
+        if isAnime {
+            Task {
+                do {
+                    let streams = try await WCOTVResolver.shared.resolveAnimeStreams(
+                        title: item.title,
+                        season: season,
+                        episode: episode
+                    )
+                    
+                    guard !streams.isEmpty else {
+                        print("No streams found on WCOTV. Falling back to default resolver.")
+                        await MainActor.run { fallbackToDefault() }
+                        return
+                    }
+                    
+                    await MainActor.run {
+                        self.availableStreams = streams
+                        self.selectedLanguage = dialogueMode
+                        
+                        let langStreams = streams.filter { $0.language == dialogueMode }
+                        if let best = langStreams.sorted(by: { $0.quality > $1.quality }).first {
+                            self.selectedQuality = best.quality
+                            loadStreamOption(best)
+                        } else if let fallback = streams.sorted(by: { $0.quality > $1.quality }).first {
+                            self.selectedLanguage = fallback.language
+                            self.selectedQuality = fallback.quality
+                            loadStreamOption(fallback)
+                        }
+                    }
+                } catch {
+                    print("WCOTV resolution failed: \(error). Falling back.")
+                    await MainActor.run { fallbackToDefault() }
+                }
+            }
+            return
+        }
+        
+        fallbackToDefault()
     }
     
     // Watch Progress Storage Helpers

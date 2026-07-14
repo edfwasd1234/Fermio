@@ -395,7 +395,7 @@ final class StreamResolver: Sendable {
         return string.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? string
     }
     
-    private func getFinalStreamUrl(from url: URL, referer: String) async -> (url: URL, referer: String) {
+    func getFinalStreamUrl(from url: URL, referer: String) async -> (url: URL, referer: String) {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue(referer, forHTTPHeaderField: "Referer")
