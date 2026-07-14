@@ -90,7 +90,7 @@ struct MoviePlayerView: View {
                 .liquidGlass(cornerRadius: 20, fillOpacity: 0.1)
                 .padding(24)
             } else if let player = player {
-                VideoPlayer(player: player)
+                NativeVideoPlayer(player: player)
                     .ignoresSafeArea()
                     .onAppear {
                         player.play()
@@ -284,5 +284,23 @@ struct MoviePlayerView: View {
             UserDefaults.standard.set(data, forKey: "continue_watching_items")
             NotificationCenter.default.post(name: NSNotification.Name("ContinueWatchingUpdated"), object: nil)
         }
+    }
+}
+
+/// Native AVPlayerViewController representable supporting Picture-in-Picture, Fullscreen, and Aspect Ratio preservation.
+struct NativeVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+    
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.videoGravity = .resizeAspect // Keeps correct aspect ratio to fix stretching
+        controller.allowsPictureInPicturePlayback = true
+        controller.showsPlaybackControls = true
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        uiViewController.player = player
     }
 }

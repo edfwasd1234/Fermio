@@ -1,5 +1,12 @@
 import SwiftUI
 
+struct PlaybackContext: Identifiable {
+    var id: String { "\(mediaItem.id)-\(season)-\(episode)" }
+    let mediaItem: MediaItem
+    let season: Int
+    let episode: Int
+}
+
 /// A premium glassmorphic card component representing a Movie or Show.
 struct MediaCard: View {
     let item: MediaItem
@@ -146,6 +153,7 @@ struct MediaDetailView: View {
     @State private var showPlayer = false
     @State private var selectedEpisode: Int = 1
     @State private var animateGlow = false
+    @State private var playbackContext: PlaybackContext? = nil
     
     private var isWatchlist: Bool {
         watchlistContains(id: item.id, type: item.type)
@@ -259,8 +267,11 @@ struct MediaDetailView: View {
                         HStack(spacing: 12) {
                             Button {
                                 HapticManager.shared.notification(type: .success)
-                                selectedEpisode = 1
-                                showPlayer = true
+                                playbackContext = PlaybackContext(
+                                    mediaItem: detailedItem ?? item,
+                                    season: 1,
+                                    episode: 1
+                                )
                             } label: {
                                 HStack {
                                     Image(systemName: "play.fill")
@@ -460,8 +471,11 @@ struct MediaDetailView: View {
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             HapticManager.shared.notification(type: .success)
-                                            selectedEpisode = episode.episode_number
-                                            showPlayer = true
+                                            playbackContext = PlaybackContext(
+                                                mediaItem: detailedItem ?? item,
+                                                season: selectedSeason,
+                                                episode: episode.episode_number
+                                            )
                                         }
                                         
                                         // Episode Download Button
@@ -492,11 +506,11 @@ struct MediaDetailView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
+        .fullScreenCover(item: $playbackContext) { context in
             MoviePlayerView(
-                item: detailedItem ?? item,
-                season: selectedSeason,
-                episode: selectedEpisode
+                item: context.mediaItem,
+                season: context.season,
+                episode: context.episode
             )
         }
         .onAppear {

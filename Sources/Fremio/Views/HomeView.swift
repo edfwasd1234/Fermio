@@ -191,13 +191,33 @@ struct ContinueWatchingCard: View {
     let progress: WatchProgress
     var onUpdate: () -> Void
     
-    @State private var showPlayer = false
     @State private var isPressed = false
+    @State private var playbackContext: PlaybackContext? = nil
     
     var body: some View {
         Button {
             HapticManager.shared.notification(type: .success)
-            showPlayer = true
+            let mediaItem = MediaItem(
+                id: progress.mediaId,
+                title: progress.title,
+                type: progress.type,
+                posterPath: progress.posterPath,
+                backdropPath: progress.backdropPath,
+                posterSymbol: progress.posterSymbol,
+                posterColorHex: progress.posterColorHex,
+                genre: progress.genre,
+                rating: progress.rating,
+                releaseYear: progress.releaseYear,
+                duration: progress.duration,
+                description: progress.description,
+                isTrending: false,
+                isNewRelease: false
+            )
+            playbackContext = PlaybackContext(
+                mediaItem: mediaItem,
+                season: progress.season,
+                episode: progress.episode
+            )
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .bottom) {
@@ -281,24 +301,8 @@ struct ContinueWatchingCard: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         }
         .buttonStyle(PressActionsButtonStyle(isPressed: $isPressed))
-        .fullScreenCover(isPresented: $showPlayer, onDismiss: onUpdate) {
-            let mediaItem = MediaItem(
-                id: progress.mediaId,
-                title: progress.title,
-                type: progress.type,
-                posterPath: progress.posterPath,
-                backdropPath: progress.backdropPath,
-                posterSymbol: progress.posterSymbol,
-                posterColorHex: progress.posterColorHex,
-                genre: progress.genre,
-                rating: progress.rating,
-                releaseYear: progress.releaseYear,
-                duration: progress.duration,
-                description: progress.description,
-                isTrending: false,
-                isNewRelease: false
-            )
-            MoviePlayerView(item: mediaItem, season: progress.season, episode: progress.episode)
+        .fullScreenCover(item: $playbackContext, onDismiss: onUpdate) { context in
+            MoviePlayerView(item: context.mediaItem, season: context.season, episode: context.episode)
         }
     }
     
@@ -316,29 +320,27 @@ struct ContinueWatchingCard: View {
 struct HeroBanner: View {
     let item: MediaItem
     @State private var pressScale: CGFloat = 1.0
-    @State private var showPlayer = false
+    @State private var playbackContext: PlaybackContext? = nil
     
     var body: some View {
         ZStack(alignment: .bottom) {
             // Backdrop Image with fallback gradient
-            GeometryReader { geo in
-                ZStack {
-                    if let backdropPath = item.backdropPath, !backdropPath.isEmpty {
-                        AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/original\(backdropPath)")) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: geo.size.width, height: 360)
-                                    .clipped()
-                            default:
-                                placeholderGradient(width: geo.size.width)
-                            }
+            ZStack {
+                if let backdropPath = item.backdropPath, !backdropPath.isEmpty {
+                    AsyncImage(url: URL(string: "https://image.tmdb.org/t/p/original\(backdropPath)")) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(height: 360)
+                                .clipped()
+                        default:
+                            placeholderGradient
                         }
-                    } else {
-                        placeholderGradient(width: geo.size.width)
                     }
+                } else {
+                    placeholderGradient
                 }
             }
             .frame(height: 360)
@@ -425,12 +427,12 @@ struct HeroBanner: View {
         .clipShape(RoundedRectangle(cornerRadius: 28))
         .padding(.horizontal, 20)
         .shadow(color: Color(hex: item.posterColorHex).opacity(0.2), radius: 12, x: 0, y: 8)
-        .fullScreenCover(isPresented: $showPlayer) {
-            MoviePlayerView(item: item, season: 1, episode: 1)
+        .fullScreenCover(item: $playbackContext) { context in
+            MoviePlayerView(item: context.mediaItem, season: context.season, episode: context.episode)
         }
     }
     
-    private func placeholderGradient(width: CGFloat) -> some View {
+    private var placeholderGradient: some View {
         LinearGradient(
             colors: [
                 Color(hex: item.posterColorHex),
@@ -440,7 +442,7 @@ struct HeroBanner: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-        .frame(width: width, height: 360)
+        .frame(height: 360)
     }
     
     private var isWatchlist: Bool {

@@ -66,31 +66,7 @@ struct TabBarButton: View {
     }
     
     var body: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                // Custom selection aura/glow behind the icon
-                Circle()
-                    .fill(Color.blue.opacity(0.18))
-                    .frame(width: 40, height: 40)
-                    .blur(radius: 6)
-                    .opacity(isSelected ? 1.0 : 0.0)
-                    .scaleEffect(bounceScale)
-                
-                Image(systemName: tab.iconName)
-                    .font(.system(size: 21, weight: isSelected ? .bold : .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.45))
-                    .scaleEffect(bounceScale)
-                    .shadow(color: isSelected ? .blue.opacity(0.7) : .clear, radius: 10)
-            }
-            
-            Text(tab.title)
-                .font(.system(size: 10, weight: isSelected ? .bold : .medium))
-                .foregroundColor(isSelected ? .white : .white.opacity(0.45))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             if activeTab != tab {
                 // Play standard iOS selection haptic feedback
                 HapticManager.shared.selection()
@@ -113,6 +89,32 @@ struct TabBarButton: View {
                     }
                 }
             }
+        } label: {
+            VStack(spacing: 4) {
+                ZStack {
+                    // Custom selection aura/glow behind the icon
+                    Circle()
+                        .fill(Color.blue.opacity(0.18))
+                        .frame(width: 40, height: 40)
+                        .blur(radius: 6)
+                        .opacity(isSelected ? 1.0 : 0.0)
+                        .scaleEffect(bounceScale)
+                    
+                    Image(systemName: tab.iconName)
+                        .font(.system(size: 21, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(isSelected ? .white : .white.opacity(0.45))
+                        .scaleEffect(bounceScale)
+                        .shadow(color: isSelected ? .blue.opacity(0.7) : .clear, radius: 10)
+                }
+                
+                Text(tab.title)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? .white : .white.opacity(0.45))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }

@@ -8,6 +8,10 @@ Fremio is a personal-use native iOS movie and TV show watching app built with Sw
 - Native SwiftUI app shell targeting iOS 26.0+ and compiled with Swift 6.2.
 - Native Apple Liquid Glass effect using `.glassEffect(in:)` and `GlassEffectContainer` APIs for light-reactive glassmorphism.
 - Real-time metadata, popular titles, trending lists, and similar content recommendations powered directly by TMDB.
+- Native Fullscreen and Picture-in-Picture (PiP) controls using custom `AVPlayerViewController` implementation.
+- Corrected aspect ratio handling (`videoGravity` set to `.resizeAspect`) to fix screen stretching during playback.
+- Fixed floating tab bar touch-through leakage, ensuring button clicks do not register on background items.
+- Fixed episode navigation via fresh data bindings (`PlaybackContext`) to prevent stale/incorrect episode loads.
 - Direct hardware-accelerated playback for MP4 and HLS streams using AVKit and AVPlayer.
 - Automatic multi-server fallback: sequentially queries and retries Flux 1 (`mp4Data`), Flux 2 (`mkvV2Data`/`mkvData`), and Flux 3 (`mkvV3Data`) stream endpoints.
 - Custom CDN bypass headers (`"Referer": "https://vidvault.ru/"`) configured directly on `AVURLAsset`.
