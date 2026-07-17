@@ -70,68 +70,74 @@ struct MoviePlayerView: View {
             
             VStack(spacing: 0) {
                 if isLandscape {
-                    ZStack(alignment: .topLeading) {
-                        playerContent
-                            .ignoresSafeArea()
-                        
-                        skipIntroButton
-                        
-                        closeButton
-                            .padding(.leading, 24)
-                            .padding(.top, 24)
-                        
-                        HStack {
-                            Spacer()
+                    playerContent
+                        .ignoresSafeArea()
+                        .overlay(alignment: .topLeading) {
+                            closeButton
+                                .padding(.leading, 24)
+                                .padding(.top, 24)
+                        }
+                        .overlay(alignment: .topTrailing) {
                             settingsButton
                                 .padding(.trailing, 24)
                                 .padding(.top, 24)
                         }
-                    }
-                    .ignoresSafeArea()
+                        .overlay(alignment: .bottomTrailing) {
+                            if showSkipIntro {
+                                skipIntroButton
+                                    .padding(.trailing, 24)
+                                    .padding(.bottom, 24)
+                            }
+                        }
+                        .ignoresSafeArea()
                 } else {
                     if isInline {
-                        ZStack(alignment: .topLeading) {
+                        ZStack {
                             Color.black
-                            
                             playerContent
-                            
-                            skipIntroButton
-                            
+                        }
+                        .frame(height: geometry.size.width * 9 / 16)
+                        .overlay(alignment: .topLeading) {
                             closeButton
                                 .padding(.leading, 16)
                                 .padding(.top, 16)
-                            
-                            HStack {
-                                Spacer()
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            settingsButton
+                                .padding(.trailing, 16)
+                                .padding(.top, 16)
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if showSkipIntro {
+                                skipIntroButton
+                                    .padding(.trailing, 16)
+                                    .padding(.bottom, 16)
+                            }
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            ZStack {
+                                Color.black
+                                playerContent
+                            }
+                            .frame(height: geometry.size.width * 9 / 16)
+                            .overlay(alignment: .topLeading) {
+                                closeButton
+                                    .padding(.leading, 16)
+                                    .padding(.top, 16)
+                            }
+                            .overlay(alignment: .topTrailing) {
                                 settingsButton
                                     .padding(.trailing, 16)
                                     .padding(.top, 16)
                             }
-                        }
-                        .frame(height: geometry.size.width * 9 / 16)
-                        .background(Color.black)
-                    } else {
-                        VStack(spacing: 0) {
-                            ZStack(alignment: .topLeading) {
-                                Color.black
-                                
-                                playerContent
-                                
-                                skipIntroButton
-                                
-                                closeButton
-                                    .padding(.leading, 16)
-                                    .padding(.top, 16)
-                                
-                                HStack {
-                                    Spacer()
-                                    settingsButton
+                            .overlay(alignment: .bottomTrailing) {
+                                if showSkipIntro {
+                                    skipIntroButton
                                         .padding(.trailing, 16)
-                                        .padding(.top, 16)
+                                        .padding(.bottom, 16)
                                 }
                             }
-                            .frame(height: geometry.size.width * 9 / 16)
-                            .background(Color.black)
                             
                             ScrollView {
                                 detailsContent
@@ -455,30 +461,20 @@ struct MoviePlayerView: View {
     
     @ViewBuilder
     private var skipIntroButton: some View {
-        if showSkipIntro {
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        if let end = introData?.end {
-                            player?.seek(to: CMTime(seconds: end, preferredTimescale: 1))
-                            showSkipIntro = false
-                        }
-                    }) {
-                        Text("Skip Intro")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.9))
-                            .cornerRadius(8)
-                            .shadow(radius: 5)
-                    }
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 60)
-                }
+        Button(action: {
+            if let end = introData?.end {
+                player?.seek(to: CMTime(seconds: end, preferredTimescale: 1))
+                showSkipIntro = false
             }
+        }) {
+            Text("Skip Intro")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.black)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.9))
+                .cornerRadius(8)
+                .shadow(radius: 5)
         }
     }
 
