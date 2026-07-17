@@ -65,206 +65,11 @@ struct MoviePlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            if isLoading {
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
-                    
-                    Text(offlineUrl != nil ? "Loading offline video..." : "Resolving secure MP4 stream...")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
-                    
-                    Text(item.type == .movie ? item.title : "\(item.title) - Season \(season) Episode \(episode)")
-                        .font(.system(size: 13))
-                        .foregroundColor(.gray)
-                }
-                .padding(30)
-                .liquidGlass(cornerRadius: 20, fillOpacity: 0.1)
-                .padding(24)
-            } else if let error = errorMessage {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 42))
-                        .foregroundColor(.orange)
-                    
-                    Text("Playback Error")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                    
-                    Text(error)
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                    
-                    Button {
-                        resolveAndPlay()
-                    } label: {
-                        Text("Retry Connection")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
-                            .background(Color.white)
-                            .cornerRadius(12)
-                    }
-                }
-                .padding(30)
-                .liquidGlass(cornerRadius: 24)
-            } else if let avPlayer = player {
-                NativeVideoPlayer(player: avPlayer)
-                    .ignoresSafeArea()
-                    
-                if showSkipIntro {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Button(action: {
-                                if let end = introData?.end {
-                                    player?.seek(to: CMTime(seconds: end, preferredTimescale: 1))
-                                    showSkipIntro = false
-                                }
-                            }) {
-                                Text("Skip Intro")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundColor(.black)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
-                                    .background(Color.white.opacity(0.9))
-                                    .cornerRadius(8)
-                                    .shadow(radius: 5)
-                            }
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 80)
-                        }
-                    }
-                }
-            }
+            playerContent
             
-            // Top Controls Overlay
-            VStack {
-                HStack(alignment: .center) {
-                    // Close Button
-                    Button {
-                        HapticManager.shared.impact(style: .medium)
-                        cleanupObserver()
-                        player?.pause()
-                        player = nil
-                        if let onClose = onClose {
-                            onClose()
-                        } else {
-                            dismiss()
-                        }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white.opacity(0.6))
-                            .padding(12)
-                    }
-                    
-                    Spacer()
-                    
-                    HStack(spacing: 10) {
-                        // Server Menu Selector
-                        Menu {
-                            ForEach(ServerOption.allCases) { server in
-                                Button {
-                                    switchServer(to: server)
-                                } label: {
-                                    HStack {
-                                        Text("\(server.displayName) (\(server.serverName))")
-                                        if selectedServer == server {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "server.rack")
-                                Text("\(selectedServer.displayName) (\(selectedServer.serverName))")
-                            }
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.white.opacity(0.12))
-                            .clipShape(Capsule())
-                        }
-                        
-                        if !availableStreams.isEmpty {
-                            // Dialogue Mode Menu Selector
-                            Menu {
-                                ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
-                                    Button {
-                                        HapticManager.shared.impact(style: .medium)
-                                        self.selectedLanguage = lang
-                                        if let best = availableStreams.filter({ $0.language == lang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == lang }).sorted(by: { $0.quality > $1.quality }).first {
-                                            self.selectedQuality = best.quality
-                                            loadStreamOption(best)
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(lang)
-                                            if selectedLanguage == lang {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                                    Text(selectedLanguage)
-                                }
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.white.opacity(0.12))
-                                .clipShape(Capsule())
-                            }
-                            
-                            // Quality Menu Selector
-                            Menu {
-                                ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
-                                    Button {
-                                        HapticManager.shared.impact(style: .medium)
-                                        self.selectedQuality = qual
-                                        if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == qual }) {
-                                            loadStreamOption(option)
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Text(qual)
-                                            if selectedQuality == qual {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "gearshape.fill")
-                                    Text(selectedQuality)
-                                }
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.white.opacity(0.12))
-                                .clipShape(Capsule())
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
+            skipIntroButton
+            
+            controlsOverlay
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -277,13 +82,219 @@ struct MoviePlayerView: View {
             guard let currentItem = player?.currentItem,
                   let obj = notification.object as? AVPlayerItem,
                   obj == currentItem,
-                  item.type == .tvShow else { return }
+                  item.type == .show else { return }
             
             episode += 1
             resolveAndPlay()
         }
     }
     
+    @ViewBuilder
+    private var playerContent: some View {
+        if isLoading {
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+                
+                Text(offlineUrl != nil ? "Loading offline video..." : "Resolving secure MP4 stream...")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                
+                Text(item.type == .movie ? item.title : "\(item.title) - Season \(season) Episode \(episode)")
+                    .font(.system(size: 13))
+                    .foregroundColor(.gray)
+            }
+            .padding(30)
+            .liquidGlass(cornerRadius: 20, fillOpacity: 0.1)
+            .padding(24)
+        } else if let error = errorMessage {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 42))
+                    .foregroundColor(.orange)
+                
+                Text("Playback Error")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
+                
+                Text(error)
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                
+                Button {
+                    resolveAndPlay()
+                } label: {
+                    Text("Retry Connection")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(Color.white)
+                        .cornerRadius(12)
+                }
+            }
+            .padding(30)
+            .liquidGlass(cornerRadius: 24)
+        } else if let avPlayer = player {
+            NativeVideoPlayer(player: avPlayer)
+                .ignoresSafeArea()
+        }
+    }
+    
+    @ViewBuilder
+    private var skipIntroButton: some View {
+        if showSkipIntro {
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        if let end = introData?.end {
+                            player?.seek(to: CMTime(seconds: end, preferredTimescale: 1))
+                            showSkipIntro = false
+                        }
+                    }) {
+                        Text("Skip Intro")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Color.white.opacity(0.9))
+                            .cornerRadius(8)
+                            .shadow(radius: 5)
+                    }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 80)
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var controlsOverlay: some View {
+        VStack {
+            HStack(alignment: .center) {
+                Button {
+                    HapticManager.shared.impact(style: .medium)
+                    cleanupObserver()
+                    player?.pause()
+                    player = nil
+                    if let onClose = onClose {
+                        onClose()
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.white.opacity(0.6))
+                        .padding(12)
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 10) {
+                    Menu {
+                        ForEach(ServerOption.allCases) { server in
+                            Button {
+                                switchServer(to: server)
+                            } label: {
+                                HStack {
+                                    Text("\(server.displayName) (\(server.serverName))")
+                                    if selectedServer == server {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "server.rack")
+                            Text("\(selectedServer.displayName) (\(selectedServer.serverName))")
+                        }
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.white.opacity(0.12))
+                        .clipShape(Capsule())
+                    }
+                    
+                    if !availableStreams.isEmpty {
+                        Menu {
+                            ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
+                                Button {
+                                    HapticManager.shared.impact(style: .medium)
+                                    self.selectedLanguage = lang
+                                    if let best = availableStreams.filter({ $0.language == lang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == lang }).sorted(by: { $0.quality > $1.quality }).first {
+                                        self.selectedQuality = best.quality
+                                        loadStreamOption(best)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(lang)
+                                        if selectedLanguage == lang {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bubble.left.and.bubble.right.fill")
+                                Text(selectedLanguage)
+                            }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.12))
+                            .clipShape(Capsule())
+                        }
+                        
+                        Menu {
+                            ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
+                                Button {
+                                    HapticManager.shared.impact(style: .medium)
+                                    self.selectedQuality = qual
+                                    if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == qual }) {
+                                        loadStreamOption(option)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(qual)
+                                        if selectedQuality == qual {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "gearshape.fill")
+                                Text(selectedQuality)
+                            }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.12))
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+                .padding(12)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+    }
+    
+
     private func cleanupObserver() {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
