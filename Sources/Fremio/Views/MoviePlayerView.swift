@@ -68,9 +68,8 @@ struct MoviePlayerView: View {
             VStack(spacing: 0) {
                 if isLandscape {
                     ZStack(alignment: .topLeading) {
-                        Color.black.ignoresSafeArea()
-                        
                         playerContent
+                            .ignoresSafeArea()
                         
                         skipIntroButton
                         
@@ -78,6 +77,7 @@ struct MoviePlayerView: View {
                             .padding(.leading, 24)
                             .padding(.top, 24)
                     }
+                    .ignoresSafeArea()
                 } else {
                     VStack(spacing: 0) {
                         ZStack(alignment: .topLeading) {
