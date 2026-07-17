@@ -499,7 +499,7 @@ struct MoviePlayerView: View {
             loadWcoTvStream()
         }
         
-        if item.type == .tvShow {
+        if item.type == .show {
             fetchIntroData()
         }
     }
