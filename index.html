@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fremio WCO.tv Test Client</title>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+  <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
   <style>
     :root {
       --bg-gradient: linear-gradient(135deg, #0b071e, #130a2a, #1a0f3c);
@@ -299,6 +301,29 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    /* Skip Intro Button */
+    #skipIntroBtn {
+      position: absolute;
+      bottom: 80px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      color: #000;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      z-index: 100;
+      display: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    #skipIntroBtn:hover {
+      background: #fff;
+      transform: scale(1.05);
+    }
   </style>
 </head>
 <body>
@@ -324,7 +349,8 @@
     <div class="player-section" id="playerSection" style="display: none;">
       <div>
         <div class="video-container">
-          <video id="mainPlayer" controls></video>
+          <video id="mainPlayer" crossorigin playsinline></video>
+          <button id="skipIntroBtn" onclick="skipIntro()">Skip Intro</button>
         </div>
         <div class="player-details">
           <h2 id="nowPlayingTitle">Select an episode</h2>
@@ -358,6 +384,43 @@
     let currentEpisodeIndex = 0;
     let selectedLanguage = 'Subbed';
     let currentStreams = [];
+    let playerInstance = null;
+    let currentImdbId = null;
+    let introData = null;
+    let currentShowTitle = '';
+
+    async function fetchImdbId(title) {
+      try {
+        const apiKey = '3d421899d5ce93db8ad4ae4591ccc130';
+        const searchRes = await fetch(`https://api.themoviedb.org/3/search/tv?api_key=${apiKey}&query=${encodeURIComponent(title)}`);
+        const searchData = await searchRes.json();
+        if (searchData.results && searchData.results.length > 0) {
+          const tvId = searchData.results[0].id;
+          const extRes = await fetch(`https://api.themoviedb.org/3/tv/${tvId}/external_ids?api_key=${apiKey}`);
+          const extData = await extRes.json();
+          currentImdbId = extData.imdb_id;
+        }
+      } catch (e) {
+        console.error('Error fetching IMDB ID:', e);
+      }
+    }
+
+    async function fetchIntroData(imdbId, season, episodeNum) {
+      try {
+        const res = await fetch(`https://api.introdb.app/segments?imdb_id=${imdbId}&season=${season}&episode=${episodeNum}`);
+        if(res.ok) {
+          const data = await res.json();
+          // introdb returns an array of segment objects
+          // type can be 'intro', 'recap', 'outro'
+          const intro = data.find(s => s.type === 'intro');
+          if (intro) {
+            introData = { start: intro.start / 1000, end: intro.end / 1000 };
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching IntroDB data:', e);
+      }
+    }
 
     async function search() {
       const q = document.getElementById('searchInput').value;
@@ -399,6 +462,10 @@
       document.getElementById('playerSection').style.display = 'grid';
       document.getElementById('loadingEpisodes').style.display = 'block';
       document.getElementById('episodesContainer').innerHTML = '';
+      
+      currentShowTitle = show.title;
+      currentImdbId = null;
+      fetchImdbId(show.title);
       
       try {
         const res = await fetch(`/api/episodes?id=${encodeURIComponent(show.id)}`);
@@ -453,10 +520,21 @@
       const ep = activeEpisodes[index];
       document.getElementById('nowPlayingTitle').textContent = `Ep ${ep.number} - ${ep.title}`;
       
-      const player = document.getElementById('mainPlayer');
-      player.pause();
-      player.removeAttribute('src');
-      player.load();
+      introData = null;
+      document.getElementById('skipIntroBtn').style.display = 'none';
+
+      if (currentImdbId) {
+        fetchIntroData(currentImdbId, 1, ep.number);
+      }
+
+      if (playerInstance) {
+        playerInstance.stop();
+      } else {
+        const player = document.getElementById('mainPlayer');
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+      }
 
       // Show loaders on quality buttons
       document.getElementById('qualityContainer').innerHTML = '<span style="color: var(--text-muted);">Fetching links...</span>';
@@ -501,12 +579,51 @@
     }
 
     function loadStream(stream) {
-      const player = document.getElementById('mainPlayer');
-      // Use the local server proxy to stream the media file with the required referer headers
       const proxyUrl = `/api/proxy?url=${encodeURIComponent(stream.url)}&referer=${encodeURIComponent(stream.referer)}`;
-      player.src = proxyUrl;
-      player.load();
-      player.play().catch(e => console.log('Autoplay blocked:', e));
+      
+      if (!playerInstance) {
+        const playerEl = document.getElementById('mainPlayer');
+        playerInstance = new Plyr(playerEl, {
+          controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+          keyboard: { focused: true, global: true },
+          tooltips: { controls: true, seek: true },
+          autoplay: true
+        });
+
+        playerInstance.on('ended', () => {
+          const nextIdx = activeEpisodes.findIndex((ep, idx) => idx > currentEpisodeIndex && ep.type === selectedLanguage);
+          if (nextIdx !== -1) {
+            playEpisode(nextIdx);
+          }
+        });
+
+        playerInstance.on('timeupdate', () => {
+          if (introData) {
+            const t = playerInstance.currentTime;
+            const btn = document.getElementById('skipIntroBtn');
+            if (t >= introData.start && t < introData.end) {
+              btn.style.display = 'block';
+            } else {
+              btn.style.display = 'none';
+            }
+          }
+        });
+      }
+
+      playerInstance.source = {
+        type: 'video',
+        sources: [
+          { src: proxyUrl, type: 'video/mp4' }
+        ]
+      };
+      
+      playerInstance.play().catch(e => console.log('Autoplay blocked:', e));
+    }
+
+    function skipIntro() {
+      if (playerInstance && introData) {
+        playerInstance.currentTime = introData.end;
+      }
     }
 
     function toggleLanguage(lang) {

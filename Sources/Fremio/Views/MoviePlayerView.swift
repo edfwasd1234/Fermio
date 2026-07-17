@@ -27,11 +27,20 @@ struct WatchProgress: Codable, Identifiable {
 
 struct MoviePlayerView: View {
     let item: MediaItem
-    var season: Int = 1
-    var episode: Int = 1
-    var dialogueMode: String = "Subbed"
-    var offlineUrl: URL? = nil
-    var onClose: (() -> Void)? = nil
+    @State var season: Int
+    @State var episode: Int
+    var dialogueMode: String
+    var offlineUrl: URL?
+    var onClose: (() -> Void)?
+    
+    init(item: MediaItem, season: Int = 1, episode: Int = 1, dialogueMode: String = "Subbed", offlineUrl: URL? = nil, onClose: (() -> Void)? = nil) {
+        self.item = item
+        self._season = State(initialValue: season)
+        self._episode = State(initialValue: episode)
+        self.dialogueMode = dialogueMode
+        self.offlineUrl = offlineUrl
+        self.onClose = onClose
+    }
     @Environment(\.dismiss) var dismiss
     
     @State private var player: AVPlayer?
@@ -46,6 +55,11 @@ struct MoviePlayerView: View {
         let saved = UserDefaults.standard.integer(forKey: "preferred_server")
         return ServerOption(rawValue: saved) ?? .flux
     }()
+    
+    @State private var introData: (start: Double, end: Double)? = nil
+    @State private var showSkipIntro: Bool = false
+    
+    let playerItemEnded = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
     
     var body: some View {
         ZStack {
@@ -101,6 +115,32 @@ struct MoviePlayerView: View {
             } else if let avPlayer = player {
                 NativeVideoPlayer(player: avPlayer)
                     .ignoresSafeArea()
+                    
+                if showSkipIntro {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                if let end = introData?.end {
+                                    player?.seek(to: CMTime(seconds: end, preferredTimescale: 1))
+                                    showSkipIntro = false
+                                }
+                            }) {
+                                Text("Skip Intro")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(Color.white.opacity(0.9))
+                                    .cornerRadius(8)
+                                    .shadow(radius: 5)
+                            }
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 80)
+                        }
+                    }
+                }
             }
             
             // Top Controls Overlay
@@ -233,6 +273,15 @@ struct MoviePlayerView: View {
         .onDisappear {
             cleanupObserver()
         }
+        .onReceive(playerItemEnded) { notification in
+            guard let currentItem = player?.currentItem,
+                  let obj = notification.object as? AVPlayerItem,
+                  obj == currentItem,
+                  item.type == .tvShow else { return }
+            
+            episode += 1
+            resolveAndPlay()
+        }
     }
     
     private func cleanupObserver() {
@@ -309,6 +358,9 @@ struct MoviePlayerView: View {
             
             Task { @MainActor in
                 self.saveProgress(current: current, total: total)
+                if let intro = self.introData {
+                    self.showSkipIntro = current >= intro.start && current < intro.end
+                }
             }
         }
     }
@@ -434,6 +486,53 @@ struct MoviePlayerView: View {
             }
         case .wcoTv:
             loadWcoTvStream()
+        }
+        
+        if item.type == .tvShow {
+            fetchIntroData()
+        }
+    }
+    
+    private func fetchIntroData() {
+        introData = nil
+        showSkipIntro = false
+        Task {
+            do {
+                let apiKey = "3d421899d5ce93db8ad4ae4591ccc130"
+                var tmdbId = item.id
+                if Int(item.id) == nil {
+                    let searchUrl = URL(string: "https://api.themoviedb.org/3/search/tv?api_key=\(apiKey)&query=\(item.title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!
+                    let (data, _) = try await URLSession.shared.data(from: searchUrl)
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let results = json["results"] as? [[String: Any]],
+                       let first = results.first,
+                       let id = first["id"] as? Int {
+                        tmdbId = String(id)
+                    }
+                }
+                
+                guard Int(tmdbId) != nil else { return }
+                
+                let extUrl = URL(string: "https://api.themoviedb.org/3/tv/\(tmdbId)/external_ids?api_key=\(apiKey)")!
+                let (extData, _) = try await URLSession.shared.data(from: extUrl)
+                if let json = try JSONSerialization.jsonObject(with: extData) as? [String: Any],
+                   let imdbId = json["imdb_id"] as? String {
+                    
+                    let introUrl = URL(string: "https://api.introdb.app/segments?imdb_id=\(imdbId)&season=\(season)&episode=\(episode)")!
+                    let (introRaw, _) = try await URLSession.shared.data(from: introUrl)
+                    if let introArray = try JSONSerialization.jsonObject(with: introRaw) as? [[String: Any]] {
+                        if let intro = introArray.first(where: { ($0["type"] as? String) == "intro" }),
+                           let start = intro["start"] as? Double,
+                           let end = intro["end"] as? Double {
+                            await MainActor.run {
+                                self.introData = (start: start / 1000.0, end: end / 1000.0)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("IntroDB fetch error: \(error)")
+            }
         }
     }
     

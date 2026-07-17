@@ -309,7 +309,7 @@ const server = http.createServer(async (req, res) => {
             steps.push(`  ↳ Seed retrieved: ${seed}`);
             
             steps.push(`[3/6] Generating authentication token (b35ebba4)...`);
-            const inputToHash = `${tmdbId}d486ae1ce6fdbe63b60bd1704541fcf0`;
+            const inputToHash = `${tmdbId}486ae1ce6fdbe63b60bd1704541fcf0`;
             const hashValue = c_hash(inputToHash);
             const hashids = new Hashids();
             const b35ebba4 = hashids.encodeHex(hashValue);
