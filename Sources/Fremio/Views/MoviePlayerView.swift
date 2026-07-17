@@ -799,7 +799,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         controller.player = player
         controller.videoGravity = .resizeAspect // Keeps correct aspect ratio to fix stretching
         controller.allowsPictureInPicturePlayback = true
-        controller.showsPlaybackControls = false
+        controller.showsPlaybackControls = true
         return controller
     }
     
