@@ -527,7 +527,7 @@ struct MediaDetailView: View {
                                                 .font(.system(size: 14, weight: .bold))
                                                 .foregroundColor(.white)
                                             
-                                            Text(episode.name)
+                                            Text(episode.name ?? "Untitled")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.gray)
                                                 .lineLimit(1)
