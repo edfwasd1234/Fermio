@@ -99,8 +99,9 @@ struct MoviePlayerView: View {
                         }
                         .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
                     }
-                }
             }
+            .statusBar(hidden: isLandscape)
+            .persistentSystemOverlays(isLandscape ? .hidden : .automatic)
         }
         .preferredColorScheme(.dark)
         .onAppear {
