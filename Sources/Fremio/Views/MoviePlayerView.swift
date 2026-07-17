@@ -556,13 +556,12 @@ struct MoviePlayerView: View {
                     
                     let introUrl = URL(string: "https://api.introdb.app/segments?imdb_id=\(imdbId)&season=\(season)&episode=\(episode)")!
                     let (introRaw, _) = try await URLSession.shared.data(from: introUrl)
-                    if let introArray = try JSONSerialization.jsonObject(with: introRaw) as? [[String: Any]] {
-                        if let intro = introArray.first(where: { ($0["type"] as? String) == "intro" }),
-                           let start = intro["start"] as? Double,
-                           let end = intro["end"] as? Double {
-                            await MainActor.run {
-                                self.introData = (start: start / 1000.0, end: end / 1000.0)
-                            }
+                    if let json = try JSONSerialization.jsonObject(with: introRaw) as? [String: Any],
+                       let intro = json["intro"] as? [String: Any] {
+                        let startVal = (intro["start_ms"] as? Double) ?? Double(intro["start_ms"] as? Int ?? 0)
+                        let endVal = (intro["end_ms"] as? Double) ?? Double(intro["end_ms"] as? Int ?? 0)
+                        await MainActor.run {
+                            self.introData = (start: startVal / 1000.0, end: endVal / 1000.0)
                         }
                     }
                 }
