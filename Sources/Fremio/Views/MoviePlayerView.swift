@@ -317,6 +317,7 @@ struct MoviePlayerView: View {
                     .padding(.bottom, 60)
                 }
             }
+        }
     }
 
     private func cleanupObserver() {
