@@ -78,7 +78,7 @@ struct Hashids {
         var result: [Character] = [lottery]
         
         for (idx, number) in numbers.enumerated() {
-            let shuffleBuffer = [lottery] + self.salt + currentAlphabet
+            let shuffleBuffer = result + self.salt + currentAlphabet
             currentAlphabet = Hashids.shuffle(currentAlphabet, salt: shuffleBuffer)
             
             let lastCode = currentAlphabet.count
