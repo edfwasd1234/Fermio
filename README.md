@@ -87,3 +87,16 @@ The native app uses:
 - SwiftUI for the entire visual shell.
 - AVKit / AVPlayer for direct stream decoding.
 - URLSession for TMDB metadata query logic and VidVault API calls.
+
+---
+
+## Open Source Acknowledgements
+This project references, utilizes, or stands on the shoulders of the following open-source tools, libraries, and APIs:
+
+*   **[Plyr](https://plyr.io/)** - Used in the web test client to deliver a modern, customizable YouTube-like HTML5 player interface.
+*   **[IntroDB](https://introdb.app/)** - Leveraged to fetch crowdsourced, frame-accurate intro segments and timestamps for skip-intro functionality.
+*   **[Hashids](https://hashids.org/)** - Utilized in the Cineby resolution fallback engine to encode obfuscated request seeds.
+*   **[TMDb API](https://www.themoviedb.org/)** - Serves metadata, trending content lists, and maps media IDs to external IDs (IMDb) to facilitate segment lookups.
+*   **[xtool](https://github.com/xtool-org/xtool)** - Used as the build packaging and CLI build runner toolchain for building the unsigned iOS IPA.
+*   **[Playwright](https://playwright.dev/)** - Referenced and utilized for headless scraping, testing, and traffic interception scripts in development.
+*   **[Node.js](https://nodejs.org/)** - Powers the local developer proxy test servers.
