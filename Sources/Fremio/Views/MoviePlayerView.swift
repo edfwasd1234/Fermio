@@ -61,71 +61,162 @@ struct MoviePlayerView: View {
     
     let playerItemEnded = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
 
-    // YouTube custom player states
-    @State private var isPlaying: Bool = true
-    @State private var currentTime: Double = 0
-    @State private var totalDuration: Double = 0.1
-    @State private var isDraggingSlider: Bool = false
-    @State private var controlsVisible: Bool = true
-    @State private var showLeftRipple: Bool = false
-    @State private var showRightRipple: Bool = false
-    @State private var controlTimeoutTask: Task<Void, Never>? = nil
-
-    private func formatTime(_ seconds: Double) -> String {
-        guard !seconds.isNaN && !seconds.isInfinite else { return "00:00" }
-        let secs = Int(seconds)
-        let h = secs / 3600
-        let m = (secs % 3600) / 60
-        let s = secs % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        } else {
-            return String(format: "%02d:%02d", m, s)
-        }
-    }
-
-    private func seekRelative(by seconds: Double) {
-        guard let player = player else { return }
-        let current = player.currentTime().seconds
-        let target = max(0, min(current + seconds, totalDuration))
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 1))
-        self.currentTime = target
-        resetControlTimeout()
-    }
-
-    private func triggerDoubleTapIndicator(isLeft: Bool) {
-        HapticManager.shared.impact(style: .light)
-        if isLeft {
-            showLeftRipple = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                showLeftRipple = false
-            }
-        } else {
-            showRightRipple = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                showRightRipple = false
-            }
-        }
-    }
-
-    private func resetControlTimeout() {
-        controlTimeoutTask?.cancel()
-        controlTimeoutTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation {
-                controlsVisible = false
-            }
-        }
-    }
-
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Upper Half: Video Player (16:9 Aspect Ratio)
+            ZStack {
+                Color.black
+                
+                playerContent
+                
+                skipIntroButton
+            }
+            .frame(height: UIScreen.main.bounds.width * 9 / 16)
+            .background(Color.black)
             
-            playerContent
-            
-            skipIntroButton
+            // Lower Half: Details, Metadata, and Server/Language selectors
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(item.title)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            if item.type == .show {
+                                Text("Season \(season) • Episode \(episode)")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Close / Back button (Moved from overlay)
+                        Button {
+                            HapticManager.shared.impact(style: .medium)
+                            cleanupObserver()
+                            player?.pause()
+                            player = nil
+                            if let onClose = onClose {
+                                onClose()
+                            } else {
+                                dismiss()
+                            }
+                        } label: {
+                            Image(systemName: "chevron.down.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
+                    .padding(.top, 20)
+                    
+                    Divider().background(Color.white.opacity(0.1))
+                    
+                    // Options Card (Server, Dialogue, Quality)
+                    VStack(spacing: 16) {
+                        HStack {
+                            Text("Server")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Menu {
+                                ForEach(ServerOption.allCases) { server in
+                                    Button {
+                                        switchServer(to: server)
+                                    } label: {
+                                        HStack {
+                                            Text("\(server.displayName) (\(server.serverName))")
+                                            if selectedServer == server {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(selectedServer.displayName) (\(selectedServer.serverName))")
+                                    Image(systemName: "chevron.up.chevron.down")
+                                }
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.cyan)
+                            }
+                        }
+                        
+                        if !availableStreams.isEmpty {
+                            HStack {
+                                Text("Language")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Menu {
+                                    ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
+                                        Button {
+                                            HapticManager.shared.impact(style: .medium)
+                                            self.selectedLanguage = lang
+                                            if let best = availableStreams.filter({ $0.language == lang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == lang }).sorted(by: { $0.quality > $1.quality }).first {
+                                                self.selectedQuality = best.quality
+                                                loadStreamOption(best)
+                                            }
+                                        } label: {
+                                            HStack {
+                                                Text(lang)
+                                                if selectedLanguage == lang {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(selectedLanguage)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                    }
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.cyan)
+                                }
+                            }
+                            
+                            HStack {
+                                Text("Quality")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Menu {
+                                    ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
+                                        Button {
+                                            HapticManager.shared.impact(style: .medium)
+                                            self.selectedQuality = qual
+                                            if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == qual }) {
+                                                loadStreamOption(option)
+                                            }
+                                        } label: {
+                                            HStack {
+                                                Text(qual)
+                                                if selectedQuality == qual {
+                                                    Image(systemName: "checkmark")
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(selectedQuality)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                    }
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.cyan)
+                                }
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(16)
+                }
+                .padding(.horizontal, 20)
+            }
+            .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -195,159 +286,8 @@ struct MoviePlayerView: View {
             .padding(30)
             .liquidGlass(cornerRadius: 24)
         } else if let avPlayer = player {
-            ZStack {
-                NativeVideoPlayer(player: avPlayer)
-                    .ignoresSafeArea()
-                    .onTapGesture(count: 2) { location in
-                        let width = UIScreen.main.bounds.width
-                        if location.x < width / 2 {
-                            seekRelative(by: -10)
-                            triggerDoubleTapIndicator(isLeft: true)
-                        } else {
-                            seekRelative(by: 10)
-                            triggerDoubleTapIndicator(isLeft: false)
-                        }
-                    }
-                    .onTapGesture(count: 1) {
-                        withAnimation {
-                            controlsVisible.toggle()
-                            if controlsVisible {
-                                resetControlTimeout()
-                            }
-                        }
-                    }
-                
-                doubleTapRipples
-                
-                if controlsVisible {
-                    Color.black.opacity(0.45)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation {
-                                controlsVisible = false
-                            }
-                        }
-                    
-                    centerControls
-                    
-                    bottomControls
-                    
-                    controlsOverlay
-                }
-            }
-        }
-    }
-    
-    @ViewBuilder
-    private var doubleTapRipples: some View {
-        HStack {
-            // Left Ripple
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.15))
-                    .frame(width: 80, height: 80)
-                    .scaleEffect(showLeftRipple ? 1.5 : 0.8)
-                    .opacity(showLeftRipple ? 0 : 1)
-                
-                VStack(spacing: 4) {
-                    Image(systemName: "backward.fill")
-                    Text("10s")
-                        .font(.system(size: 12, weight: .bold))
-                }
-                .foregroundColor(.white)
-            }
-            .opacity(showLeftRipple ? 1 : 0)
-            .animation(.easeOut(duration: 0.5), value: showLeftRipple)
-            .frame(maxWidth: .infinity)
-            
-            // Right Ripple
-            ZStack {
-                Circle()
-                    .fill(Color.white.opacity(0.15))
-                    .frame(width: 80, height: 80)
-                    .scaleEffect(showRightRipple ? 1.5 : 0.8)
-                    .opacity(showRightRipple ? 0 : 1)
-                
-                VStack(spacing: 4) {
-                    Image(systemName: "forward.fill")
-                    Text("10s")
-                        .font(.system(size: 12, weight: .bold))
-                }
-                .foregroundColor(.white)
-            }
-            .opacity(showRightRipple ? 1 : 0)
-            .animation(.easeOut(duration: 0.5), value: showRightRipple)
-            .frame(maxWidth: .infinity)
-        }
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var centerControls: some View {
-        HStack(spacing: 50) {
-            Button(action: {
-                seekRelative(by: -10)
-            }) {
-                Image(systemName: "gobackward.10")
-                    .font(.system(size: 32))
-                    .foregroundColor(.white)
-            }
-            
-            Button(action: {
-                if isPlaying {
-                    player?.pause()
-                } else {
-                    player?.play()
-                }
-                isPlaying.toggle()
-                resetControlTimeout()
-            }) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 48))
-                    .foregroundColor(.white)
-            }
-            
-            Button(action: {
-                seekRelative(by: 10)
-            }) {
-                Image(systemName: "goforward.10")
-                    .font(.system(size: 32))
-                    .foregroundColor(.white)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var bottomControls: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: 8) {
-                HStack {
-                    Text(formatTime(currentTime))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    Spacer()
-                    
-                    Text(formatTime(totalDuration))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .padding(.horizontal, 8)
-                
-                Slider(value: $currentTime, in: 0...totalDuration, onEditingChanged: { editing in
-                    isDraggingSlider = editing
-                    if editing {
-                        controlTimeoutTask?.cancel()
-                    } else {
-                        player?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 1))
-                        resetControlTimeout()
-                    }
-                })
-                .accentColor(.red)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            NativeVideoPlayer(player: avPlayer)
+                .ignoresSafeArea()
         }
     }
     
@@ -365,140 +305,18 @@ struct MoviePlayerView: View {
                         }
                     }) {
                         Text("Skip Intro")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundColor(.black)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                             .background(Color.white.opacity(0.9))
                             .cornerRadius(8)
                             .shadow(radius: 5)
                     }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 80)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 60)
                 }
             }
-        }
-    }
-    
-    @ViewBuilder
-    private var controlsOverlay: some View {
-        VStack {
-            HStack(alignment: .center) {
-                Button {
-                    HapticManager.shared.impact(style: .medium)
-                    cleanupObserver()
-                    player?.pause()
-                    player = nil
-                    if let onClose = onClose {
-                        onClose()
-                    } else {
-                        dismiss()
-                    }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.white.opacity(0.6))
-                        .padding(12)
-                }
-                
-                Spacer()
-                
-                HStack(spacing: 10) {
-                    Menu {
-                        ForEach(ServerOption.allCases) { server in
-                            Button {
-                                switchServer(to: server)
-                            } label: {
-                                HStack {
-                                    Text("\(server.displayName) (\(server.serverName))")
-                                    if selectedServer == server {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "server.rack")
-                            Text("\(selectedServer.displayName) (\(selectedServer.serverName))")
-                        }
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.white.opacity(0.12))
-                        .clipShape(Capsule())
-                    }
-                    
-                    if !availableStreams.isEmpty {
-                        Menu {
-                            ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
-                                Button {
-                                    HapticManager.shared.impact(style: .medium)
-                                    self.selectedLanguage = lang
-                                    if let best = availableStreams.filter({ $0.language == lang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == lang }).sorted(by: { $0.quality > $1.quality }).first {
-                                        self.selectedQuality = best.quality
-                                        loadStreamOption(best)
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(lang)
-                                        if selectedLanguage == lang {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "bubble.left.and.bubble.right.fill")
-                                Text(selectedLanguage)
-                            }
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.white.opacity(0.12))
-                            .clipShape(Capsule())
-                        }
-                        
-                        Menu {
-                            ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
-                                Button {
-                                    HapticManager.shared.impact(style: .medium)
-                                    self.selectedQuality = qual
-                                    if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == qual }) {
-                                        loadStreamOption(option)
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(qual)
-                                        if selectedQuality == qual {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "gearshape.fill")
-                                Text(selectedQuality)
-                            }
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.white.opacity(0.12))
-                            .clipShape(Capsule())
-                        }
-                    }
-                }
-                .padding(12)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
     }
 
     private func cleanupObserver() {

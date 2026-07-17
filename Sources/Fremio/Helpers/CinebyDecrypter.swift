@@ -74,6 +74,7 @@ struct CinebyDecrypter {
         
         let nextAcc = f(UInt32(truncatingIfNeeded: UInt64(newC) + 2654435769))
         state.S[i] = nextAcc
+        state.isSet[i] = true
         state.acc = nextAcc
         return nextAcc
     }

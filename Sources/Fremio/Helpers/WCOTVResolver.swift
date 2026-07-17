@@ -231,7 +231,7 @@ final class WCOTVResolver: Sendable {
             let token = String(arrayContent[tokenRange])
             
             guard let decodedData = Data(base64Encoded: token) else { continue }
-            let decodedStr = String(decoding: decodedData, as: UTF8.self)
+            let decodedStr = String(data: decodedData, encoding: .isoLatin1) ?? ""
             let digits = decodedStr.filter { $0.isNumber }
             if let digitVal = Int(digits) {
                 let code = digitVal - constant
