@@ -32,14 +32,16 @@ struct MoviePlayerView: View {
     var dialogueMode: String
     var offlineUrl: URL?
     var onClose: (() -> Void)?
+    var isInline: Bool
     
-    init(item: MediaItem, season: Int = 1, episode: Int = 1, dialogueMode: String = "Subbed", offlineUrl: URL? = nil, onClose: (() -> Void)? = nil) {
+    init(item: MediaItem, season: Int = 1, episode: Int = 1, dialogueMode: String = "Subbed", offlineUrl: URL? = nil, onClose: (() -> Void)? = nil, isInline: Bool = false) {
         self.item = item
         self._season = State(initialValue: season)
         self._episode = State(initialValue: episode)
         self.dialogueMode = dialogueMode
         self.offlineUrl = offlineUrl
         self.onClose = onClose
+        self.isInline = isInline
     }
     @Environment(\.dismiss) var dismiss
     
@@ -58,6 +60,7 @@ struct MoviePlayerView: View {
     
     @State private var introData: (start: Double, end: Double)? = nil
     @State private var showSkipIntro: Bool = false
+    @State private var showSettingsSheet = false
     
     let playerItemEnded = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
 
@@ -76,10 +79,17 @@ struct MoviePlayerView: View {
                         closeButton
                             .padding(.leading, 24)
                             .padding(.top, 24)
+                        
+                        HStack {
+                            Spacer()
+                            settingsButton
+                                .padding(.trailing, 24)
+                                .padding(.top, 24)
+                        }
                     }
                     .ignoresSafeArea()
                 } else {
-                    VStack(spacing: 0) {
+                    if isInline {
                         ZStack(alignment: .topLeading) {
                             Color.black
                             
@@ -90,14 +100,44 @@ struct MoviePlayerView: View {
                             closeButton
                                 .padding(.leading, 16)
                                 .padding(.top, 16)
+                            
+                            HStack {
+                                Spacer()
+                                settingsButton
+                                    .padding(.trailing, 16)
+                                    .padding(.top, 16)
+                            }
                         }
                         .frame(height: geometry.size.width * 9 / 16)
                         .background(Color.black)
-                        
-                        ScrollView {
-                            detailsContent
+                    } else {
+                        VStack(spacing: 0) {
+                            ZStack(alignment: .topLeading) {
+                                Color.black
+                                
+                                playerContent
+                                
+                                skipIntroButton
+                                
+                                closeButton
+                                    .padding(.leading, 16)
+                                    .padding(.top, 16)
+                                
+                                HStack {
+                                    Spacer()
+                                    settingsButton
+                                        .padding(.trailing, 16)
+                                        .padding(.top, 16)
+                                }
+                            }
+                            .frame(height: geometry.size.width * 9 / 16)
+                            .background(Color.black)
+                            
+                            ScrollView {
+                                detailsContent
+                            }
+                            .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
                         }
-                        .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
                     }
                 }
             }
@@ -119,6 +159,102 @@ struct MoviePlayerView: View {
             
             episode += 1
             resolveAndPlay()
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            VStack(spacing: 24) {
+                Text("Playback Settings")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                
+                VStack(spacing: 16) {
+                    HStack {
+                        Text("Server")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.gray)
+                        Spacer()
+                        Picker("Server", selection: $selectedServer) {
+                            ForEach(ServerOption.allCases) { server in
+                                Text("\(server.displayName)").tag(server)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .onChange(of: selectedServer) { _, newServer in
+                            switchServer(to: newServer)
+                        }
+                    }
+                    
+                    if !availableStreams.isEmpty {
+                        HStack {
+                            Text("Language")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Picker("Language", selection: $selectedLanguage) {
+                                ForEach(Array(Set(availableStreams.map { $0.language })).sorted(), id: \.self) { lang in
+                                    Text(lang).tag(lang)
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
+                            .onChange(of: selectedLanguage) { _, newLang in
+                                if let best = availableStreams.filter({ $0.language == newLang && $0.quality == selectedQuality }).first ?? availableStreams.filter({ $0.language == newLang }).sorted(by: { $0.quality > $1.quality }).first {
+                                    self.selectedQuality = best.quality
+                                    loadStreamOption(best)
+                                }
+                            }
+                        }
+                        
+                        HStack {
+                            Text("Quality")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Picker("Quality", selection: $selectedQuality) {
+                                ForEach(Array(Set(availableStreams.filter { $0.language == selectedLanguage }.map { $0.quality })).sorted(), id: \.self) { qual in
+                                    Text(qual).tag(qual)
+                                }
+                            }
+                            .pickerStyle(MenuPickerStyle())
+                            .onChange(of: selectedQuality) { _, newQual in
+                                if let option = availableStreams.first(where: { $0.language == selectedLanguage && $0.quality == newQual }) {
+                                    loadStreamOption(option)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(16)
+                
+                Button("Done") {
+                    showSettingsSheet = false
+                }
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.black)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.white)
+                .cornerRadius(12)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            }
+            .presentationDetents([.height(320)])
+            .presentationDragIndicator(.visible)
+            .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
+            .preferredColorScheme(.dark)
+        }
+    }
+    
+    private var settingsButton: some View {
+        Button {
+            HapticManager.shared.impact(style: .medium)
+            showSettingsSheet = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.white.opacity(0.8))
+                .shadow(radius: 3)
         }
     }
     
