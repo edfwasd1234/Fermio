@@ -60,7 +60,65 @@ struct MoviePlayerView: View {
     @State private var showSkipIntro: Bool = false
     
     let playerItemEnded = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
-    
+
+    // YouTube custom player states
+    @State private var isPlaying: Bool = true
+    @State private var currentTime: Double = 0
+    @State private var totalDuration: Double = 0.1
+    @State private var isDraggingSlider: Bool = false
+    @State private var controlsVisible: Bool = true
+    @State private var showLeftRipple: Bool = false
+    @State private var showRightRipple: Bool = false
+    @State private var controlTimeoutTask: Task<Void, Never>? = nil
+
+    private func formatTime(_ seconds: Double) -> String {
+        guard !seconds.isNaN && !seconds.isInfinite else { return "00:00" }
+        let secs = Int(seconds)
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%02d:%02d", m, s)
+        }
+    }
+
+    private func seekRelative(by seconds: Double) {
+        guard let player = player else { return }
+        let current = player.currentTime().seconds
+        let target = max(0, min(current + seconds, totalDuration))
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 1))
+        self.currentTime = target
+        resetControlTimeout()
+    }
+
+    private func triggerDoubleTapIndicator(isLeft: Bool) {
+        HapticManager.shared.impact(style: .light)
+        if isLeft {
+            showLeftRipple = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                showLeftRipple = false
+            }
+        } else {
+            showRightRipple = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                showRightRipple = false
+            }
+        }
+    }
+
+    private func resetControlTimeout() {
+        controlTimeoutTask?.cancel()
+        controlTimeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                controlsVisible = false
+            }
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -68,8 +126,6 @@ struct MoviePlayerView: View {
             playerContent
             
             skipIntroButton
-            
-            controlsOverlay
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -139,8 +195,159 @@ struct MoviePlayerView: View {
             .padding(30)
             .liquidGlass(cornerRadius: 24)
         } else if let avPlayer = player {
-            NativeVideoPlayer(player: avPlayer)
-                .ignoresSafeArea()
+            ZStack {
+                NativeVideoPlayer(player: avPlayer)
+                    .ignoresSafeArea()
+                    .onTapGesture(count: 2) { location in
+                        let width = UIScreen.main.bounds.width
+                        if location.x < width / 2 {
+                            seekRelative(by: -10)
+                            triggerDoubleTapIndicator(isLeft: true)
+                        } else {
+                            seekRelative(by: 10)
+                            triggerDoubleTapIndicator(isLeft: false)
+                        }
+                    }
+                    .onTapGesture(count: 1) {
+                        withAnimation {
+                            controlsVisible.toggle()
+                            if controlsVisible {
+                                resetControlTimeout()
+                            }
+                        }
+                    }
+                
+                doubleTapRipples
+                
+                if controlsVisible {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation {
+                                controlsVisible = false
+                            }
+                        }
+                    
+                    centerControls
+                    
+                    bottomControls
+                    
+                    controlsOverlay
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var doubleTapRipples: some View {
+        HStack {
+            // Left Ripple
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 80, height: 80)
+                    .scaleEffect(showLeftRipple ? 1.5 : 0.8)
+                    .opacity(showLeftRipple ? 0 : 1)
+                
+                VStack(spacing: 4) {
+                    Image(systemName: "backward.fill")
+                    Text("10s")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundColor(.white)
+            }
+            .opacity(showLeftRipple ? 1 : 0)
+            .animation(.easeOut(duration: 0.5), value: showLeftRipple)
+            .frame(maxWidth: .infinity)
+            
+            // Right Ripple
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 80, height: 80)
+                    .scaleEffect(showRightRipple ? 1.5 : 0.8)
+                    .opacity(showRightRipple ? 0 : 1)
+                
+                VStack(spacing: 4) {
+                    Image(systemName: "forward.fill")
+                    Text("10s")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundColor(.white)
+            }
+            .opacity(showRightRipple ? 1 : 0)
+            .animation(.easeOut(duration: 0.5), value: showRightRipple)
+            .frame(maxWidth: .infinity)
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var centerControls: some View {
+        HStack(spacing: 50) {
+            Button(action: {
+                seekRelative(by: -10)
+            }) {
+                Image(systemName: "gobackward.10")
+                    .font(.system(size: 32))
+                    .foregroundColor(.white)
+            }
+            
+            Button(action: {
+                if isPlaying {
+                    player?.pause()
+                } else {
+                    player?.play()
+                }
+                isPlaying.toggle()
+                resetControlTimeout()
+            }) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(.white)
+            }
+            
+            Button(action: {
+                seekRelative(by: 10)
+            }) {
+                Image(systemName: "goforward.10")
+                    .font(.system(size: 32))
+                    .foregroundColor(.white)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bottomControls: some View {
+        VStack {
+            Spacer()
+            VStack(spacing: 8) {
+                HStack {
+                    Text(formatTime(currentTime))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    Spacer()
+                    
+                    Text(formatTime(totalDuration))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 8)
+                
+                Slider(value: $currentTime, in: 0...totalDuration, onEditingChanged: { editing in
+                    isDraggingSlider = editing
+                    if editing {
+                        controlTimeoutTask?.cancel()
+                    } else {
+                        player?.seek(to: CMTime(seconds: currentTime, preferredTimescale: 1))
+                        resetControlTimeout()
+                    }
+                })
+                .accentColor(.red)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
     }
     
@@ -293,7 +500,6 @@ struct MoviePlayerView: View {
         .padding(.horizontal, 10)
         .padding(.top, 10)
     }
-    
 
     private func cleanupObserver() {
         if let observer = timeObserver {
@@ -617,7 +823,7 @@ struct NativeVideoPlayer: UIViewControllerRepresentable {
         controller.player = player
         controller.videoGravity = .resizeAspect // Keeps correct aspect ratio to fix stretching
         controller.allowsPictureInPicturePlayback = true
-        controller.showsPlaybackControls = true
+        controller.showsPlaybackControls = false
         return controller
     }
     
