@@ -11,5 +11,8 @@ dev/node_modules/
 # Captured dev artifacts & screenshots
 *.png
 
+# Diagnostics collector runtime output
+dev/received-logs.jsonl
+
 # macOS
 .DS_Store
