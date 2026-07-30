@@ -21,12 +21,16 @@ struct MediaItem: Identifiable, Hashable, Codable {
     /// initializers and previously-persisted JSON keep working.
     var runtimeMinutes: Int? = nil
     var seasonCount: Int? = nil
+    /// TMDB original language (e.g. "en", "ja"). Used to tell anime apart from
+    /// Western cartoons, which share the "Animation" genre.
+    var originalLanguage: String? = nil
 
-    /// Heuristic anime detection (TMDB has no dedicated "anime" genre, so this
-    /// keys off animation). Centralized here so every screen agrees.
+    /// True only for anime/donghua (Japanese/Chinese/Korean originals), which
+    /// have separate Subbed/Dubbed tracks. Western cartoons like Rick and Morty
+    /// are "Animation" but English-language, so they get a single track and no
+    /// Sub/Dub picker.
     var isAnime: Bool {
-        let g = genre.lowercased()
-        return g.contains("anim")
+        ["ja", "zh", "ko", "cn"].contains((originalLanguage ?? "").lowercased())
     }
 }
 

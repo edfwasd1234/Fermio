@@ -192,7 +192,8 @@ class TMDBService {
             isTrending: false,
             isNewRelease: false,
             runtimeMinutes: (type == .movie ? detail.runtime : nil),
-            seasonCount: (type == .show ? detail.number_of_seasons : nil)
+            seasonCount: (type == .show ? detail.number_of_seasons : nil),
+            originalLanguage: detail.original_language
         )
     }
 
@@ -230,7 +231,8 @@ class TMDBService {
             duration: type == .movie ? "Movie" : "TV Show",
             description: result.overview ?? "",
             isTrending: isTrending,
-            isNewRelease: isNewRelease
+            isNewRelease: isNewRelease,
+            originalLanguage: result.original_language
         )
     }
     
@@ -283,6 +285,7 @@ struct TMDBResult: Codable {
     let overview: String?
     let genre_ids: [Int]?
     let media_type: String?
+    let original_language: String?
 }
 
 struct TMDBDetailResponse: Codable {
@@ -298,6 +301,7 @@ struct TMDBDetailResponse: Codable {
     let runtime: Int?
     let number_of_seasons: Int?
     let genres: [TMDBGenre]?
+    let original_language: String?
 }
 
 struct TMDBGenre: Codable {

@@ -720,9 +720,14 @@ struct MoviePlayerView: View {
             }
         case .wcoTv:
             if AppConfig.resolverBackendURL != nil {
+                DiagnosticsLog.info("Player", "Server 3 resolving via backend for \(item.title)", detail: "S\(season)E\(episode) dialogue: \(dialogueMode)")
                 loadBackendStream()
             } else {
-                loadWcoTvStream()
+                // The native WCO.tv scraper is Cloudflare-blocked; don't silently
+                // fall through to it (that's the "dubbed options that don't work").
+                DiagnosticsLog.warning("Player", "Server 3 used with no resolver backend configured")
+                errorMessage = "Server 3 needs a Streaming Backend. Add a Resolver URL in Settings → Streaming Backend."
+                isLoading = false
             }
         }
         
