@@ -474,7 +474,11 @@ final class StreamResolver: Sendable {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue(referer, forHTTPHeaderField: "Referer")
-        
+        // Only need to see the status/redirect, not the payload — a tiny range
+        // stops us from downloading an entire MP4 when the URL returns 200
+        // directly (e.g. animegg/animeheaven) instead of a 302 (wcostream).
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+
         final class RedirectHandler: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
                 completionHandler(nil)

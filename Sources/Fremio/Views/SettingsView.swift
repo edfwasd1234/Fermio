@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage("tmdbApiKey") private var tmdbApiKey = AppConfig.defaultTMDBApiKey
     @AppStorage("diagnosticsEndpoint") private var diagnosticsEndpoint = ""
     @AppStorage("diagnosticsAutoSend") private var diagnosticsAutoSend = false
+    @AppStorage("resolverBackendURL") private var resolverBackendURL = ""
     
     @State private var easterEggCount = 0
     @State private var showEasterEgg = false
@@ -175,6 +176,50 @@ struct SettingsView: View {
                         .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
                     }
                     
+                    // Streaming Backend Group
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("STREAMING BACKEND")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 8)
+
+                        VStack(spacing: 0) {
+                            HStack {
+                                Image(systemName: "server.rack")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.purple.opacity(0.2))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Text("Resolver URL")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+
+                                Spacer()
+
+                                TextField("https://…", text: $resolverBackendURL)
+                                    .multilineTextAlignment(.trailing)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .frame(width: 170)
+                                    .textFieldStyle(PlainTextFieldStyle())
+                                    .autocorrectionDisabled(true)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.URL)
+                                    .accentColor(.cyan)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
+
+                        Text("Powers Server 3 (anime & cartoons) via the FerAnime resolver, with fallbacks across sources. Leave blank to use the built-in resolver.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 8)
+                    }
+
                     // Diagnostics Group
                     VStack(alignment: .leading, spacing: 10) {
                         Text("DIAGNOSTICS")

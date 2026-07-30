@@ -600,6 +600,44 @@ struct MoviePlayerView: View {
         }
     }
 
+    /// Resolves the WCO.tv-style server through the FerAnime backend, which
+    /// tries wcotv first and falls back to other sources. Streams flow through
+    /// the same quality picker + auto-fallback as the native path.
+    private func loadBackendStream() {
+        Task {
+            do {
+                let streams = try await BackendResolver.resolve(
+                    title: item.title,
+                    season: season,
+                    episode: episode,
+                    dub: dialogueMode == "Dubbed"
+                )
+                await MainActor.run {
+                    self.availableStreams = streams
+                    self.selectedLanguage = streams.first?.language ?? dialogueMode
+                    let ranked = streams.sorted { qualityRank($0.quality) > qualityRank($1.quality) }
+                    if let best = ranked.first {
+                        self.selectedQuality = best.quality
+                        loadStreamOption(best)
+                    } else {
+                        self.errorMessage = "No playable stream found for this title."
+                        self.isLoading = false
+                    }
+                }
+            } catch {
+                DiagnosticsLog.error("Player", "Backend resolve failed for \(item.title)", error: error, detail: "S\(season)E\(episode) dialogue: \(dialogueMode)")
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+
+    private func qualityRank(_ q: String) -> Int {
+        Int(q.filter(\.isNumber)) ?? 0
+    }
+
     private func loadWcoTvStream() {
         Task {
             do {
@@ -681,7 +719,11 @@ struct MoviePlayerView: View {
                 )
             }
         case .wcoTv:
-            loadWcoTvStream()
+            if AppConfig.resolverBackendURL != nil {
+                loadBackendStream()
+            } else {
+                loadWcoTvStream()
+            }
         }
         
         if item.type == .show {

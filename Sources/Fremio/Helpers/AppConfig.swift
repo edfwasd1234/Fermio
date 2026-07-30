@@ -16,6 +16,20 @@ enum AppConfig {
 
     static let tmdbBaseURL = "https://api.themoviedb.org/3"
 
+    /// Base URL of the FerAnime resolver backend (user-configured in Settings),
+    /// used to resolve WCO.tv-style anime/cartoon streams with fallbacks. Nil
+    /// when unset or invalid.
+    static var resolverBackendURL: URL? {
+        guard let raw = UserDefaults.standard.string(forKey: "resolverBackendURL")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let url = URL(string: raw),
+              (url.scheme == "http" || url.scheme == "https") else {
+            return nil
+        }
+        return url
+    }
+
     /// Shared session with request/resource timeouts so a dead upstream server
     /// can't hang a resolution chain indefinitely.
     static let httpSession: URLSession = {
