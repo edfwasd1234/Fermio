@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("autoPlayPreviews") private var autoPlayPreviews = true
     @AppStorage("hdStreaming") private var hdStreaming = true
     @AppStorage("tmdbApiKey") private var tmdbApiKey = AppConfig.defaultTMDBApiKey
+    @AppStorage("diagnosticsEndpoint") private var diagnosticsEndpoint = ""
+    @AppStorage("diagnosticsAutoSend") private var diagnosticsAutoSend = false
     
     @State private var easterEggCount = 0
     @State private var showEasterEgg = false
@@ -218,6 +220,51 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
+
+                        VStack(spacing: 0) {
+                            HStack {
+                                Image(systemName: "antenna.radiowaves.left.and.right")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.green.opacity(0.2))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Text("Report Endpoint")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+
+                                Spacer()
+
+                                TextField("https://…", text: $diagnosticsEndpoint)
+                                    .multilineTextAlignment(.trailing)
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .frame(width: 170)
+                                    .textFieldStyle(PlainTextFieldStyle())
+                                    .autocorrectionDisabled(true)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.URL)
+                                    .accentColor(.cyan)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+
+                            Divider().background(Color.white.opacity(0.1))
+
+                            settingsToggleRow(
+                                title: "Auto-send Errors",
+                                icon: "paperplane.fill",
+                                iconColor: .green,
+                                isEnabled: $diagnosticsAutoSend
+                            )
+                        }
+                        .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
+
+                        Text("When an endpoint is set, errors can be sent from the console (or automatically). Paste any HTTPS collector URL — e.g. a webhook.site inbox.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 8)
                     }
 
                     // Branding Logo & Easter Egg (Cascade Haptics)

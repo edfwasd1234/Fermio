@@ -28,6 +28,7 @@ struct MoviePlayerView: View {
     @State private var timeObserver: Any?
     
     @State private var availableStreams: [WCOTVStreamOption] = []
+    @State private var triedStreamIDs: Set<String> = []
     @State private var selectedLanguage: String = "Subbed"
     @State private var selectedQuality: String = "1080p"
     @State private var selectedServer: ServerOption = {
@@ -492,8 +493,17 @@ struct MoviePlayerView: View {
             } catch {
                 DiagnosticsLog.error("Player", "Failed to load asset for \(item.title) (\(option.language) \(option.quality))", error: error, detail: "url: \(resolvedUrl.absoluteString)")
                 await MainActor.run {
-                    self.errorMessage = "Failed to load streaming options for \(option.language) (\(option.quality))."
-                    self.isLoading = false
+                    self.triedStreamIDs.insert(option.id)
+                    // Auto-fall back to the next quality/language that hasn't failed yet.
+                    if let next = self.availableStreams.first(where: { !self.triedStreamIDs.contains($0.id) }) {
+                        DiagnosticsLog.info("Player", "Falling back to \(next.language) \(next.quality) after \(option.language) \(option.quality) failed to load")
+                        self.selectedLanguage = next.language
+                        self.selectedQuality = next.quality
+                        self.loadStreamOption(next)
+                    } else {
+                        self.errorMessage = "Couldn't load any available stream for this episode. Try another server."
+                        self.isLoading = false
+                    }
                 }
                 return
             }
@@ -636,7 +646,8 @@ struct MoviePlayerView: View {
         isLoading = true
         errorMessage = nil
         availableStreams = []
-        
+        triedStreamIDs = []
+
         if let offlineUrl = offlineUrl {
             let playerItem = AVPlayerItem(url: offlineUrl)
             let avPlayer = AVPlayer(playerItem: playerItem)

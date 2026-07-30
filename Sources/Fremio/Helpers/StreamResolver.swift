@@ -304,9 +304,12 @@ final class StreamResolver: Sendable {
         seedRequest.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
         seedRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         
-        let (seedData, _) = try await AppConfig.httpSession.data(for: seedRequest)
+        let (seedData, seedResponse) = try await AppConfig.httpSession.data(for: seedRequest)
         guard let seedJson = try? JSONSerialization.jsonObject(with: seedData) as? [String: Any],
               let seed = seedJson["seed"] as? String else {
+            let status = (seedResponse as? HTTPURLResponse)?.statusCode ?? -1
+            let body = String(data: seedData, encoding: .utf8)?.prefix(300) ?? ""
+            DiagnosticsLog.error("Stream/Cineby", "Failed to fetch seed (HTTP \(status))", detail: "tmdbId: \(tmdbId)\nbody: \(body)")
             throw NSError(domain: "StreamResolver", code: 11, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch seed from wingsdatabase"])
         }
         
@@ -336,21 +339,25 @@ final class StreamResolver: Sendable {
         request.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         
-        let (sourcesData, _) = try await AppConfig.httpSession.data(for: request)
-        
+        let (sourcesData, sourcesResponse) = try await AppConfig.httpSession.data(for: request)
+        let sourcesStatus = (sourcesResponse as? HTTPURLResponse)?.statusCode ?? -1
+
         guard let encryptedBase64 = String(data: sourcesData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !encryptedBase64.isEmpty else {
+            DiagnosticsLog.error("Stream/Cineby", "Empty sources response (HTTP \(sourcesStatus))", detail: "tmdbId: \(tmdbId)")
             throw NSError(domain: "StreamResolver", code: 12, userInfo: [NSLocalizedDescriptionKey: "Empty response from wingsdatabase"])
         }
-        
+
         let decryptedJsonString: String
         do {
             decryptedJsonString = try CinebyDecrypter.decrypt(encryptedBase64: encryptedBase64, seed: seed, mediaId: Int(tmdbId) ?? 0)
         } catch {
             if let plainJson = try? JSONSerialization.jsonObject(with: sourcesData) as? [String: Any],
                let sources = plainJson["sources"] as? [[String: Any]], sources.isEmpty {
+                DiagnosticsLog.error("Stream/Cineby", "No sources found for this title", detail: "tmdbId: \(tmdbId) S\(season)E\(episode)")
                 throw NSError(domain: "StreamResolver", code: 13, userInfo: [NSLocalizedDescriptionKey: "No sources found on Cineby fallback"])
             }
+            DiagnosticsLog.error("Stream/Cineby", "Failed to decrypt sources (HTTP \(sourcesStatus))", error: error, detail: "tmdbId: \(tmdbId)\nseedLen: \(seed.count)\nresponse[0..<200]: \(encryptedBase64.prefix(200))")
             throw error
         }
         

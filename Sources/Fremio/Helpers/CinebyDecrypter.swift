@@ -79,9 +79,25 @@ struct CinebyDecrypter {
         return nextAcc
     }
     
+    /// Decodes standard or URL-safe base64, tolerating missing padding and stray
+    /// whitespace/newlines (the source often returns unpadded URL-safe base64,
+    /// which `Data(base64Encoded:)` rejects outright).
+    static func decodeFlexibleBase64(_ input: String) -> Data? {
+        var s = input
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = s.count % 4
+        if remainder > 0 {
+            s += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: s, options: [.ignoreUnknownCharacters])
+    }
+
     static func decrypt(encryptedBase64: String, seed: String, mediaId: Int) throws -> String {
-        guard let data = Data(base64Encoded: encryptedBase64.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")) else {
-            throw NSError(domain: "CinebyDecrypter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid base64 payload"])
+        guard let data = decodeFlexibleBase64(encryptedBase64) else {
+            let preview = encryptedBase64.prefix(120)
+            throw NSError(domain: "CinebyDecrypter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Response was not valid base64 (server likely returned an error/HTML instead of an encrypted payload). First 120 chars: \(preview)"])
         }
         
         let length = data.count

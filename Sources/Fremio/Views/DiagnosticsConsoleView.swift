@@ -9,7 +9,8 @@ struct DiagnosticsConsoleView: View {
 
     @State private var filter: FilterOption = .all
     @State private var expandedIDs: Set<UUID> = []
-    @State private var showCopied = false
+    @State private var toast: String?
+    @State private var isSending = false
 
     enum FilterOption: String, CaseIterable {
         case all = "All"
@@ -76,14 +77,18 @@ struct DiagnosticsConsoleView: View {
                     Menu {
                         Button {
                             UIPasteboard.general.string = DiagnosticsLog.shared.exportText()
-                            withAnimation { showCopied = true }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                                withAnimation { showCopied = false }
-                            }
+                            flashToast("Copied to clipboard")
                         } label: {
                             Label("Copy All", systemImage: "doc.on.doc")
                         }
                         .disabled(DiagnosticsLog.shared.entries.isEmpty)
+
+                        Button {
+                            sendToServer()
+                        } label: {
+                            Label("Send to Server", systemImage: "paperplane")
+                        }
+                        .disabled(DiagnosticsLog.shared.entries.isEmpty || isSending)
 
                         Button(role: .destructive) {
                             withAnimation {
@@ -100,13 +105,13 @@ struct DiagnosticsConsoleView: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if showCopied {
-                    Text("Copied to clipboard")
+                if let toast {
+                    Text(toast)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.8))
+                        .background(Color.black.opacity(0.85))
                         .clipShape(Capsule())
                         .padding(.bottom, 24)
                         .transition(.opacity)
@@ -114,6 +119,29 @@ struct DiagnosticsConsoleView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func flashToast(_ message: String) {
+        withAnimation { toast = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation { if toast == message { toast = nil } }
+        }
+    }
+
+    private func sendToServer() {
+        guard DiagnosticsLog.remoteEndpoint != nil else {
+            flashToast("Set a Report Endpoint in Settings first")
+            return
+        }
+        isSending = true
+        flashToast("Sending…")
+        Task {
+            let ok = await DiagnosticsLog.shared.uploadAll()
+            await MainActor.run {
+                isSending = false
+                flashToast(ok ? "Sent to server ✓" : "Send failed — check the endpoint URL")
+            }
+        }
     }
 
     private func row(_ entry: DiagnosticsLog.Entry) -> some View {

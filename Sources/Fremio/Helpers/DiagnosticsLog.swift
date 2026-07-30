@@ -45,6 +45,13 @@ final class DiagnosticsLog {
             entries = Array(entries.prefix(maxEntries))
         }
         save()
+
+        // Optional automatic upload of errors to a user-configured endpoint.
+        // NOTE: the uploader itself never logs (see `post`), so a failing upload
+        // can't trigger another error that re-triggers an upload (no loop).
+        if entry.level == .error, Self.autoSendEnabled, let endpoint = Self.remoteEndpoint {
+            Task { _ = await Self.post(entries: [entry], to: endpoint) }
+        }
     }
 
     func clear() {
@@ -94,6 +101,69 @@ final class DiagnosticsLog {
             parts.append("userInfo: \(extraUserInfo)")
         }
         return parts.joined(separator: "\n")
+    }
+
+    // MARK: - Remote reporting (user-configured endpoint)
+
+    /// The HTTPS endpoint the log is POSTed to, if the user has set one in
+    /// Settings. Any collector works (a self-hosted server, or a quick
+    /// throwaway inbox like webhook.site).
+    nonisolated static var remoteEndpoint: URL? {
+        guard let raw = UserDefaults.standard.string(forKey: "diagnosticsEndpoint")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let url = URL(string: raw),
+              (url.scheme == "http" || url.scheme == "https") else {
+            return nil
+        }
+        return url
+    }
+
+    nonisolated static var autoSendEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "diagnosticsAutoSend")
+    }
+
+    private struct Payload: Codable {
+        let generatedAt: Date
+        let app: String
+        let system: String
+        let entries: [Entry]
+    }
+
+    /// Upload the entire current log. Returns whether the server accepted it.
+    func uploadAll() async -> Bool {
+        guard let endpoint = Self.remoteEndpoint else { return false }
+        return await Self.post(entries: entries, to: endpoint)
+    }
+
+    /// Fire-and-forget POST of the given entries. Deliberately performs no
+    /// logging of its own so a failed upload can't spawn more error entries.
+    nonisolated static func post(entries: [Entry], to endpoint: URL) async -> Bool {
+        let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "?"
+        let payload = Payload(
+            generatedAt: Date(),
+            app: "Fremio \(appVersion) (\(build))",
+            system: ProcessInfo.processInfo.operatingSystemVersionString,
+            entries: entries
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted]
+        guard let body = try? encoder.encode(payload) else { return false }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        do {
+            let (_, response) = try await AppConfig.httpSession.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            return (200...299).contains(code)
+        } catch {
+            return false
+        }
     }
 
     /// Full plain-text dump for the "Copy All" / share action.

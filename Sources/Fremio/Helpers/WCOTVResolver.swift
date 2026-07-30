@@ -192,9 +192,16 @@ final class WCOTVResolver: Sendable {
         getvidRequest.setValue(getvidInfo.referer, forHTTPHeaderField: "Referer")
         getvidRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         
-        guard let (vidData, _) = try? await AppConfig.httpSession.data(for:getvidRequest),
-              let vidResponse = try? JSONDecoder().decode(WCOTVResponse.self, from: vidData) else {
-            DiagnosticsLog.error("WCOTV", "getvidlink request/parse failed", detail: "url: \(getvidInfo.url.absoluteString)")
+        let vidData: Data
+        do {
+            (vidData, _) = try await AppConfig.httpSession.data(for: getvidRequest)
+        } catch {
+            DiagnosticsLog.error("WCOTV", "getvidlink request failed", error: error, detail: "url: \(getvidInfo.url.absoluteString)")
+            return []
+        }
+        guard let vidResponse = try? JSONDecoder().decode(WCOTVResponse.self, from: vidData) else {
+            let body = String(data: vidData, encoding: .utf8)?.prefix(400) ?? ""
+            DiagnosticsLog.error("WCOTV", "getvidlink returned unexpected format (site may have changed)", detail: "url: \(getvidInfo.url.absoluteString)\nbody: \(body)")
             return []
         }
 
