@@ -150,7 +150,7 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
                     self.initiateDownload(taskId: taskId, url: streamUrl)
                 }
             } catch {
-                print("Failed to resolve stream link for download: \(error)")
+                DiagnosticsLog.error("Download", "Failed to resolve stream for download: \(item.title)", error: error, detail: "taskId: \(taskId)")
                 await MainActor.run {
                     self.failTask(taskId: taskId)
                 }
@@ -289,7 +289,7 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
                 }
             }
         } catch {
-            print("Failed to save downloaded file: \(error)")
+            DiagnosticsLog.error("Download", "Failed to move downloaded file into place", error: error, detail: "taskId: \(taskId)")
             Task { @MainActor in
                 self.failTask(taskId: taskId)
             }
@@ -299,8 +299,10 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let taskId = task.taskDescription else { return }
         if let error = error {
-            print("Download task failed with error: \(error)")
+            let described = DiagnosticsLog.describe(error)
+            let statusCode = (task.response as? HTTPURLResponse)?.statusCode
             Task { @MainActor in
+                DiagnosticsLog.error("Download", "Download task failed", detail: "taskId: \(taskId)" + (statusCode.map { "\nhttpStatus: \($0)" } ?? "") + "\n" + described)
                 self.failTask(taskId: taskId)
                 self.activeDownloads.removeValue(forKey: taskId)
             }

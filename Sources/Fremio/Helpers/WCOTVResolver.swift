@@ -50,7 +50,11 @@ final class WCOTVResolver: Sendable {
             let streams = await extractStreams(episodePageUrlString: info.url, lang: info.lang)
             allStreams.append(contentsOf: streams)
         }
-        
+
+        if allStreams.isEmpty {
+            DiagnosticsLog.error("WCOTV", "No anime streams resolved", detail: "title: \(title)  S\(season)E\(episode)\ntried slugs: \(allSlugs.joined(separator: ", "))\nepisode links found: \(allLinkInfos.count)")
+        }
+
         return allStreams
     }
     
@@ -68,9 +72,10 @@ final class WCOTVResolver: Sendable {
         
         guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
+            DiagnosticsLog.warning("WCOTV", "Search request failed", detail: "title: \(title)")
             return []
         }
-        
+
         // Match anime slugs /anime/([^/"'\s]+)
         guard let regex = try? NSRegularExpression(pattern: "/anime/([^/\"'\\s]+)", options: []) else { return [] }
         let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
@@ -102,9 +107,10 @@ final class WCOTVResolver: Sendable {
         
         guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
+            DiagnosticsLog.warning("WCOTV", "Failed to fetch show page", detail: "slug: \(showSlug)")
             return []
         }
-        
+
         guard let regex = try? NSRegularExpression(pattern: "<a\\s+href=[\"']([^\"']+)[\"'][^>]*>([^<]*)", options: []) else { return [] }
         let nsRange = NSRange(html.startIndex..<html.endIndex, in: html)
         let matches = regex.matches(in: html, options: [], range: nsRange)
@@ -164,12 +170,22 @@ final class WCOTVResolver: Sendable {
         
         guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
+            DiagnosticsLog.warning("WCOTV", "Failed to fetch episode page", detail: "url: \(pageUrlStr)")
             return []
         }
-        
-        guard let pmx = decodeWCOTVobfuscation(html: html) else { return [] }
-        guard let iframeSrc = extractIframeSrc(pmx: pmx) else { return [] }
-        guard let getvidInfo = buildGetVidLinkUrl(iframeSrc: iframeSrc) else { return [] }
+
+        guard let pmx = decodeWCOTVobfuscation(html: html) else {
+            DiagnosticsLog.error("WCOTV", "Failed to decode page obfuscation (site format may have changed)", detail: "url: \(pageUrlStr)")
+            return []
+        }
+        guard let iframeSrc = extractIframeSrc(pmx: pmx) else {
+            DiagnosticsLog.error("WCOTV", "Could not find embed iframe in decoded page", detail: "url: \(pageUrlStr)")
+            return []
+        }
+        guard let getvidInfo = buildGetVidLinkUrl(iframeSrc: iframeSrc) else {
+            DiagnosticsLog.error("WCOTV", "Could not build getvidlink URL from iframe", detail: "iframe: \(iframeSrc)")
+            return []
+        }
         
         var getvidRequest = URLRequest(url: getvidInfo.url)
         getvidRequest.setValue(ua, forHTTPHeaderField: "User-Agent")
@@ -178,11 +194,15 @@ final class WCOTVResolver: Sendable {
         
         guard let (vidData, _) = try? await AppConfig.httpSession.data(for:getvidRequest),
               let vidResponse = try? JSONDecoder().decode(WCOTVResponse.self, from: vidData) else {
+            DiagnosticsLog.error("WCOTV", "getvidlink request/parse failed", detail: "url: \(getvidInfo.url.absoluteString)")
             return []
         }
-        
+
         let server = vidResponse.server ?? vidResponse.cdn
-        guard let serverUrlStr = server, !serverUrlStr.isEmpty else { return [] }
+        guard let serverUrlStr = server, !serverUrlStr.isEmpty else {
+            DiagnosticsLog.error("WCOTV", "getvidlink response had no server/cdn", detail: "enc: \(vidResponse.enc ?? "nil") hd: \(vidResponse.hd ?? "nil") fhd: \(vidResponse.fhd ?? "nil")")
+            return []
+        }
         
         var streams: [WCOTVStreamOption] = []
         

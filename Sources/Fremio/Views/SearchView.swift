@@ -185,6 +185,7 @@ struct SearchView: View {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
+                DiagnosticsLog.error("Search", "Search failed for \"\(trimmed)\"", error: error)
                 await MainActor.run {
                     self.isSearching = false
                 }

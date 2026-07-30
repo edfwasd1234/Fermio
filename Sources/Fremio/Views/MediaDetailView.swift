@@ -453,7 +453,7 @@ struct MediaDetailView: View {
                     }
                 }
             } catch {
-                print("Error loading details: \(error)")
+                DiagnosticsLog.error("Detail", "Failed to load details for \(item.title)", error: error, detail: "id: \(item.id) type: \(item.type.rawValue)")
             }
         }
     }
@@ -468,6 +468,7 @@ struct MediaDetailView: View {
                     self.isEpisodesLoading = false
                 }
             } catch {
+                DiagnosticsLog.error("Detail", "Failed to load episodes for \(item.title)", error: error, detail: "id: \(item.id) season: \(season)")
                 await MainActor.run {
                     self.isEpisodesLoading = false
                 }

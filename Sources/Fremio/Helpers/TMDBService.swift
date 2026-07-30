@@ -88,15 +88,31 @@ class TMDBService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await AppConfig.httpSession.data(for: request)
-        
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await AppConfig.httpSession.data(for: request)
+        } catch {
+            DiagnosticsLog.error("TMDB", "Network request failed: \(path)", error: error, detail: "url: \(url.absoluteString)")
+            throw error
+        }
+
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let body = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
+            DiagnosticsLog.error("TMDB", "HTTP \(status) for \(path)", detail: "url: \(url.absoluteString)\nbody: \(body)")
             throw URLError(.badServerResponse)
         }
-        
-        let decoded = try JSONDecoder().decode(T.self, from: data)
-        saveToCache(key: cacheKey, value: decoded)
-        return decoded
+
+        do {
+            let decoded = try JSONDecoder().decode(T.self, from: data)
+            saveToCache(key: cacheKey, value: decoded)
+            return decoded
+        } catch {
+            let body = String(data: data, encoding: .utf8)?.prefix(500) ?? ""
+            DiagnosticsLog.error("TMDB", "Failed to decode response for \(path)", error: error, detail: "body: \(body)")
+            throw error
+        }
     }
     
     // MARK: - Public Endpoints

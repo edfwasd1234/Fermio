@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var easterEggCount = 0
     @State private var showEasterEgg = false
     @State private var cacheCleared = false
+    @State private var showConsole = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -172,6 +173,53 @@ struct SettingsView: View {
                         .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
                     }
                     
+                    // Diagnostics Group
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("DIAGNOSTICS")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 8)
+
+                        Button {
+                            HapticManager.shared.impact(style: .light)
+                            showConsole = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "terminal.fill")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(.white)
+                                    .padding(8)
+                                    .background(Color.blue.opacity(0.2))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Text("Advanced Console")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+
+                                Spacer()
+
+                                let errorCount = DiagnosticsLog.shared.errorCount
+                                if errorCount > 0 {
+                                    Text("\(errorCount)")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.red)
+                                        .clipShape(Capsule())
+                                }
+
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.3))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .buttonStyle(.plain)
+                        .liquidGlass(cornerRadius: 20, fillOpacity: 0.04)
+                    }
+
                     // Branding Logo & Easter Egg (Cascade Haptics)
                     VStack(spacing: 8) {
                         Image(systemName: "popcorn.fill")
@@ -226,8 +274,11 @@ struct SettingsView: View {
                 .padding(.horizontal, 24)
             }
         }
+        .sheet(isPresented: $showConsole) {
+            DiagnosticsConsoleView()
+        }
     }
-    
+
     // A small labelled count for the profile card
     private func libraryStat(count: Int, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {

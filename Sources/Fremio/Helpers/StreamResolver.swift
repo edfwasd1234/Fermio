@@ -85,13 +85,17 @@ final class StreamResolver: Sendable {
         tokenRequest.setValue(referer, forHTTPHeaderField: "Referer")
         
         let (tokenData, tokenResponse) = try await AppConfig.httpSession.data(for: tokenRequest)
-        
+
         guard let httpTokenResponse = tokenResponse as? HTTPURLResponse, httpTokenResponse.statusCode == 200 else {
+            let status = (tokenResponse as? HTTPURLResponse)?.statusCode ?? -1
+            DiagnosticsLog.error("Stream/Flux", "Token request returned HTTP \(status)", detail: "tmdbId: \(tmdbId) type: \(type == .movie ? "movie" : "tv")")
             throw URLError(.badServerResponse)
         }
-        
+
         guard let tokenJson = try? JSONSerialization.jsonObject(with: tokenData, options: []) as? [String: Any],
               let token = tokenJson["t"] as? String else {
+            let body = String(data: tokenData, encoding: .utf8)?.prefix(300) ?? ""
+            DiagnosticsLog.error("Stream/Flux", "Failed to parse token from get-token", detail: "body: \(body)")
             throw NSError(domain: "StreamResolver", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to parse token"])
         }
         
@@ -120,12 +124,16 @@ final class StreamResolver: Sendable {
         proxyRequest.httpBody = bodyData
         
         let (proxyData, proxyResponse) = try await AppConfig.httpSession.data(for: proxyRequest)
-        
+
         guard let httpProxyResponse = proxyResponse as? HTTPURLResponse, httpProxyResponse.statusCode == 200 else {
+            let status = (proxyResponse as? HTTPURLResponse)?.statusCode ?? -1
+            DiagnosticsLog.error("Stream/Flux", "download-proxy returned HTTP \(status)", detail: "tmdbId: \(tmdbId)")
             throw URLError(.badServerResponse)
         }
-        
+
         guard let json = try? JSONSerialization.jsonObject(with: proxyData, options: []) as? [String: Any] else {
+            let body = String(data: proxyData, encoding: .utf8)?.prefix(300) ?? ""
+            DiagnosticsLog.error("Stream/Flux", "Failed to parse download-proxy response", detail: "body: \(body)")
             throw NSError(domain: "StreamResolver", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse proxy response"])
         }
         
@@ -209,14 +217,20 @@ final class StreamResolver: Sendable {
         }
         
         guard let finalRawUrl = selectedEntry?.url else {
+            DiagnosticsLog.warning("Stream/Flux", "No direct stream in proxy response; trying fallbacks", detail: "tmdbId: \(tmdbId)  flux1: \(flux1Entries.count)  flux2: \(flux2Entries.count)  flux3: \(flux3Entries.count)")
             // Attempt resolving from independent Flux alternate server APIs directly!
-            if let fallbackUrl = try? await resolveFromFluxFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
-                return fallbackUrl
+            do {
+                return try await resolveFromFluxFallback(type: type, tmdbId: tmdbId, season: season, episode: episode)
+            } catch {
+                DiagnosticsLog.warning("Stream/Flux", "Flux alternate API fallback failed", detail: DiagnosticsLog.describe(error))
             }
             // Fallback to Cineby.at API
-            if let fallbackUrl = try? await resolveFromCinebyFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
-                return fallbackUrl
+            do {
+                return try await resolveFromCinebyFallback(type: type, tmdbId: tmdbId, season: season, episode: episode)
+            } catch {
+                DiagnosticsLog.warning("Stream/Cineby", "Cineby fallback failed", detail: DiagnosticsLog.describe(error))
             }
+            DiagnosticsLog.error("Stream/Flux", "No stream found on any server", detail: "tmdbId: \(tmdbId) type: \(type == .movie ? "movie" : "tv") S\(season)E\(episode)")
             throw StreamResolverError.notFound
         }
         
@@ -409,7 +423,7 @@ final class StreamResolver: Sendable {
                 return TMDBMovieData(title: title, year: year, imdbId: imdbId, totalSeasons: totalSeasons)
             }
         } catch {
-            print("Failed to fetch TMDB details for \(tmdbId): \(error)")
+            DiagnosticsLog.error("Stream/Cineby", "Failed to fetch TMDB details", error: error, detail: "tmdbId: \(tmdbId)")
         }
         return nil
     }
@@ -430,7 +444,7 @@ final class StreamResolver: Sendable {
                 return json["imdb_id"] as? String
             }
         } catch {
-            print("Failed to fetch IMDb ID: \(error)")
+            DiagnosticsLog.error("Stream/Flux", "Failed to fetch IMDb ID", error: error, detail: "tmdbId: \(tmdbId)")
         }
         return nil
     }
@@ -479,9 +493,9 @@ final class StreamResolver: Sendable {
                 return (locationUrl, referer)
             }
         } catch {
-            print("Failed to pre-resolve stream redirect: \(error)")
+            DiagnosticsLog.warning("Stream", "Failed to pre-resolve stream redirect", detail: DiagnosticsLog.describe(error))
         }
-        
+
         return (url, referer)
     }
     

@@ -40,6 +40,7 @@ struct MoviePlayerView: View {
     @State private var showSettingsSheet = false
     
     let playerItemEnded = NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
+    let playerItemFailed = NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)
 
     var body: some View {
         GeometryReader { geometry in
@@ -93,6 +94,14 @@ struct MoviePlayerView: View {
                   item.type == .show else { return }
 
             Task { await advanceToNextEpisodeIfAvailable() }
+        }
+        .onReceive(playerItemFailed) { notification in
+            guard let obj = notification.object as? AVPlayerItem, obj == player?.currentItem else { return }
+            let underlying = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
+                ?? player?.currentItem?.error
+            let detail = underlying.map { DiagnosticsLog.describe($0) } ?? "no underlying error reported"
+            DiagnosticsLog.error("Player", "Playback failed during play for \(item.title) [\(selectedServer.serverName)]", detail: "S\(season)E\(episode)\n\(detail)")
+            errorMessage = underlying?.localizedDescription ?? "Playback failed. Try another server."
         }
         .sheet(isPresented: $showSettingsSheet) {
             VStack(spacing: 24) {
@@ -476,9 +485,12 @@ struct MoviePlayerView: View {
                 "Referer": resolvedReferer
             ]
             let asset = AVURLAsset(url: resolvedUrl, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-            
-            guard let _ = try? await asset.load(.tracks),
-                  let _ = try? await asset.load(.duration) else {
+
+            do {
+                _ = try await asset.load(.tracks)
+                _ = try await asset.load(.duration)
+            } catch {
+                DiagnosticsLog.error("Player", "Failed to load asset for \(item.title) (\(option.language) \(option.quality))", error: error, detail: "url: \(resolvedUrl.absoluteString)")
                 await MainActor.run {
                     self.errorMessage = "Failed to load streaming options for \(option.language) (\(option.quality))."
                     self.isLoading = false
@@ -569,6 +581,7 @@ struct MoviePlayerView: View {
                     self.isLoading = false
                 }
             } catch {
+                DiagnosticsLog.error("Player", "Stream resolution failed for \(item.title) [\(selectedServer.serverName)]", error: error, detail: "type: \(item.type.rawValue) S\(season)E\(episode)")
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
                     self.isLoading = false
@@ -576,7 +589,7 @@ struct MoviePlayerView: View {
             }
         }
     }
-    
+
     private func loadWcoTvStream() {
         Task {
             do {
@@ -587,6 +600,7 @@ struct MoviePlayerView: View {
                 )
                 
                 guard !streams.isEmpty else {
+                    DiagnosticsLog.error("Player", "No WCOTV streams for \(item.title)", detail: "S\(season)E\(episode) dialogue: \(dialogueMode)")
                     await MainActor.run {
                         self.errorMessage = "No streams found on WCOTV for this item."
                         self.isLoading = false
@@ -609,6 +623,7 @@ struct MoviePlayerView: View {
                     }
                 }
             } catch {
+                DiagnosticsLog.error("Player", "WCOTV resolution failed for \(item.title)", error: error, detail: "S\(season)E\(episode)")
                 await MainActor.run {
                     self.errorMessage = "WCOTV resolution failed: \(error.localizedDescription)"
                     self.isLoading = false
@@ -700,7 +715,7 @@ struct MoviePlayerView: View {
                     }
                 }
             } catch {
-                print("IntroDB fetch error: \(error)")
+                DiagnosticsLog.warning("IntroDB", "Failed to fetch intro segment for \(item.title)", detail: DiagnosticsLog.describe(error))
             }
         }
     }

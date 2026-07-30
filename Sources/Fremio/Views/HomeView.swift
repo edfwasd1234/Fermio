@@ -161,7 +161,7 @@ struct HomeView: View {
                     self.isLoading = false
                 }
             } catch {
-                print("Error loading home data: \(error)")
+                DiagnosticsLog.error("Home", "Failed to load discover feed (showing sample data)", error: error)
                 await MainActor.run {
                     self.isLoading = false
                     // Fallback to mock data in case of failure so app doesn't go blank
