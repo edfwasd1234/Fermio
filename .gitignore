@@ -1,0 +1,15 @@
+# SwiftPM / xtool build output
+.build/
+.swiftpm/
+xtool/
+*.ipa
+
+# Node (dev-only scraping/test scripts under dev/)
+node_modules/
+dev/node_modules/
+
+# Captured dev artifacts & screenshots
+*.png
+
+# macOS
+.DS_Store

@@ -2,29 +2,6 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
-struct WatchProgress: Codable, Identifiable {
-    var id: String {
-        type == .movie ? mediaId : "\(mediaId)_S\(season)_E\(episode)"
-    }
-    let mediaId: String
-    let title: String
-    let type: MediaType
-    let posterPath: String?
-    let backdropPath: String?
-    let posterColorHex: String
-    let posterSymbol: String
-    let genre: String
-    let rating: Double
-    let releaseYear: Int
-    let duration: String
-    let description: String
-    let season: Int
-    let episode: Int
-    let currentPosition: Double
-    let totalDuration: Double
-    let lastWatched: Date
-}
-
 struct MoviePlayerView: View {
     let item: MediaItem
     @State var season: Int
@@ -70,80 +47,32 @@ struct MoviePlayerView: View {
             
             VStack(spacing: 0) {
                 if isLandscape {
-                    playerContent
-                        .ignoresSafeArea()
-                        .overlay(alignment: .topLeading) {
-                            closeButton
-                                .padding(.leading, 24)
-                                .padding(.top, 24)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            settingsButton
-                                .padding(.trailing, 24)
-                                .padding(.top, 24)
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            if showSkipIntro {
-                                skipIntroButton
-                                    .padding(.trailing, 24)
-                                    .padding(.bottom, 24)
-                            }
-                        }
-                        .ignoresSafeArea()
-                } else {
-                    if isInline {
+                    playerSurface(padding: 24) {
+                        playerContent.ignoresSafeArea()
+                    }
+                    .ignoresSafeArea()
+                } else if isInline {
+                    playerSurface(padding: 16) {
                         ZStack {
                             Color.black
                             playerContent
                         }
                         .frame(height: geometry.size.width * 9 / 16)
-                        .overlay(alignment: .topLeading) {
-                            closeButton
-                                .padding(.leading, 16)
-                                .padding(.top, 16)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            settingsButton
-                                .padding(.trailing, 16)
-                                .padding(.top, 16)
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            if showSkipIntro {
-                                skipIntroButton
-                                    .padding(.trailing, 16)
-                                    .padding(.bottom, 16)
-                            }
-                        }
-                    } else {
-                        VStack(spacing: 0) {
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        playerSurface(padding: 16) {
                             ZStack {
                                 Color.black
                                 playerContent
                             }
                             .frame(height: geometry.size.width * 9 / 16)
-                            .overlay(alignment: .topLeading) {
-                                closeButton
-                                    .padding(.leading, 16)
-                                    .padding(.top, 16)
-                            }
-                            .overlay(alignment: .topTrailing) {
-                                settingsButton
-                                    .padding(.trailing, 16)
-                                    .padding(.top, 16)
-                            }
-                            .overlay(alignment: .bottomTrailing) {
-                                if showSkipIntro {
-                                    skipIntroButton
-                                        .padding(.trailing, 16)
-                                        .padding(.bottom, 16)
-                                }
-                            }
-                            
-                            ScrollView {
-                                detailsContent
-                            }
-                            .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
                         }
+
+                        ScrollView {
+                            detailsContent
+                        }
+                        .background(Color(red: 0.05, green: 0.05, blue: 0.08).ignoresSafeArea())
                     }
                 }
             }
@@ -162,9 +91,8 @@ struct MoviePlayerView: View {
                   let obj = notification.object as? AVPlayerItem,
                   obj == currentItem,
                   item.type == .show else { return }
-            
-            episode += 1
-            resolveAndPlay()
+
+            Task { await advanceToNextEpisodeIfAvailable() }
         }
         .sheet(isPresented: $showSettingsSheet) {
             VStack(spacing: 24) {
@@ -478,6 +406,54 @@ struct MoviePlayerView: View {
         }
     }
 
+    /// Wraps the video area with the close / settings / skip-intro overlays at a
+    /// given inset. Shared by the landscape, inline, and portrait layouts so the
+    /// overlay set isn't triplicated.
+    @ViewBuilder
+    private func playerSurface<Content: View>(padding: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .overlay(alignment: .topLeading) {
+                closeButton
+                    .padding(.leading, padding)
+                    .padding(.top, padding)
+            }
+            .overlay(alignment: .topTrailing) {
+                settingsButton
+                    .padding(.trailing, padding)
+                    .padding(.top, padding)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if showSkipIntro {
+                    skipIntroButton
+                        .padding(.trailing, padding)
+                        .padding(.bottom, padding)
+                }
+            }
+    }
+
+    /// Advances to the next episode only when one actually exists — first within
+    /// the current season, then rolling into the next season. Prevents the old
+    /// behavior of incrementing the episode number past the end of the show.
+    @MainActor
+    private func advanceToNextEpisodeIfAvailable() async {
+        if let current = try? await TMDBService.shared.fetchEpisodes(tvId: item.id, seasonNumber: season),
+           let maxEp = current.map({ $0.episode_number }).max(),
+           episode < maxEp {
+            episode += 1
+            resolveAndPlay()
+            return
+        }
+
+        let nextSeason = season + 1
+        if let next = try? await TMDBService.shared.fetchEpisodes(tvId: item.id, seasonNumber: nextSeason),
+           let firstEp = next.map({ $0.episode_number }).min() {
+            season = nextSeason
+            episode = firstEp
+            resolveAndPlay()
+        }
+        // If there's no further episode, playback simply stops.
+    }
+
     private func cleanupObserver() {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -692,11 +668,11 @@ struct MoviePlayerView: View {
         showSkipIntro = false
         Task {
             do {
-                let apiKey = "3d421899d5ce93db8ad4ae4591ccc130"
+                let apiKey = AppConfig.tmdbApiKey
                 var tmdbId = item.id
                 if Int(item.id) == nil {
                     let searchUrl = URL(string: "https://api.themoviedb.org/3/search/tv?api_key=\(apiKey)&query=\(item.title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!
-                    let (data, _) = try await URLSession.shared.data(from: searchUrl)
+                    let (data, _) = try await AppConfig.httpSession.data(from: searchUrl)
                     if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let results = json["results"] as? [[String: Any]],
                        let first = results.first,
@@ -708,12 +684,12 @@ struct MoviePlayerView: View {
                 guard Int(tmdbId) != nil else { return }
                 
                 let extUrl = URL(string: "https://api.themoviedb.org/3/tv/\(tmdbId)/external_ids?api_key=\(apiKey)")!
-                let (extData, _) = try await URLSession.shared.data(from: extUrl)
+                let (extData, _) = try await AppConfig.httpSession.data(from:extUrl)
                 if let json = try JSONSerialization.jsonObject(with: extData) as? [String: Any],
                    let imdbId = json["imdb_id"] as? String {
                     
                     let introUrl = URL(string: "https://api.introdb.app/segments?imdb_id=\(imdbId)&season=\(season)&episode=\(episode)")!
-                    let (introRaw, _) = try await URLSession.shared.data(from: introUrl)
+                    let (introRaw, _) = try await AppConfig.httpSession.data(from:introUrl)
                     if let json = try JSONSerialization.jsonObject(with: introRaw) as? [String: Any],
                        let intro = json["intro"] as? [String: Any] {
                         let startVal = (intro["start_ms"] as? Double) ?? Double(intro["start_ms"] as? Int ?? 0)
@@ -729,64 +705,13 @@ struct MoviePlayerView: View {
         }
     }
     
-    // Watch Progress Storage Helpers
+    // Watch Progress Storage Helpers (backed by LibraryStore)
     private func getSavedPosition() -> Double {
-        guard let data = UserDefaults.standard.data(forKey: "continue_watching_items"),
-              let list = try? JSONDecoder().decode([WatchProgress].self, from: data) else {
-            return 0
-        }
-        if item.type == .movie {
-            return list.first(where: { $0.mediaId == item.id })?.currentPosition ?? 0
-        } else {
-            return list.first(where: { $0.mediaId == item.id && $0.season == season && $0.episode == episode })?.currentPosition ?? 0
-        }
+        LibraryStore.shared.savedPosition(mediaId: item.id, type: item.type, season: season, episode: episode)
     }
 
     private func saveProgress(current: Double, total: Double) {
-        guard current > 10 else { return }
-        
-        var list: [WatchProgress] = []
-        if let data = UserDefaults.standard.data(forKey: "continue_watching_items"),
-           let decoded = try? JSONDecoder().decode([WatchProgress].self, from: data) {
-            list = decoded
-        }
-        
-        list.removeAll(where: { p in
-            if item.type == .movie {
-                return p.mediaId == item.id
-            } else {
-                return p.mediaId == item.id && p.season == season && p.episode == episode
-            }
-        })
-        
-        // Save if user hasn't finished the video (95% rule)
-        if current < (total * 0.95) {
-            let progress = WatchProgress(
-                mediaId: item.id,
-                title: item.title,
-                type: item.type,
-                posterPath: item.posterPath,
-                backdropPath: item.backdropPath,
-                posterColorHex: item.posterColorHex,
-                posterSymbol: item.posterSymbol,
-                genre: item.genre,
-                rating: item.rating,
-                releaseYear: item.releaseYear,
-                duration: item.duration,
-                description: item.description,
-                season: season,
-                episode: episode,
-                currentPosition: current,
-                totalDuration: total,
-                lastWatched: Date()
-            )
-            list.insert(progress, at: 0)
-        }
-        
-        if let data = try? JSONEncoder().encode(list) {
-            UserDefaults.standard.set(data, forKey: "continue_watching_items")
-            NotificationCenter.default.post(name: NSNotification.Name("ContinueWatchingUpdated"), object: nil)
-        }
+        LibraryStore.shared.updateProgress(item: item, season: season, episode: episode, current: current, total: total)
     }
 }
 

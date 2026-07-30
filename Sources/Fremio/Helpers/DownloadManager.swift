@@ -61,16 +61,37 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
     
     private override init() {
         super.init()
-        self.session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        // Background session so downloads continue while the app is suspended and
+        // resume/deliver their results when it's relaunched.
+        let config = URLSessionConfiguration.background(withIdentifier: "app.fremio.downloads")
+        config.sessionSendsLaunchEvents = true
+        config.isDiscretionary = false
+        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         loadTasks()
-        
-        // Mark any interrupted downloading tasks as failed on launch
-        for i in 0..<tasks.count {
-            if tasks[i].status == .downloading {
-                tasks[i].status = .failed
+        reconcileInterruptedTasks()
+    }
+
+    /// After a background session reconnects, tasks still running keep their
+    /// `.downloading` status (their delegate callbacks will update them). Only
+    /// tasks that are genuinely gone get marked failed.
+    private func reconcileInterruptedTasks() {
+        session.getAllTasks { sessionTasks in
+            let activeIds = Set(sessionTasks.compactMap { $0.taskDescription })
+            Task { @MainActor [weak self] in
+                self?.markStaleDownloadsFailed(activeIds: activeIds)
             }
         }
-        saveTasks()
+    }
+
+    private func markStaleDownloadsFailed(activeIds: Set<String>) {
+        var changed = false
+        for i in tasks.indices where tasks[i].status == .downloading {
+            if !activeIds.contains(tasks[i].id) {
+                tasks[i].status = .failed
+                changed = true
+            }
+        }
+        if changed { saveTasks() }
     }
     
     func startDownload(item: MediaItem, season: Int = 1, episode: Int = 1) {
@@ -140,7 +161,12 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
     private func initiateDownload(taskId: String, url: URL) {
         guard let idx = tasks.firstIndex(where: { $0.id == taskId }) else { return }
         
-        let downloadTask = session.downloadTask(with: url)
+        // Same CDN-bypass headers playback uses; without them the origin 403s.
+        var request = URLRequest(url: url)
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://vidvault.ru/", forHTTPHeaderField: "Referer")
+
+        let downloadTask = session.downloadTask(with: request)
         activeDownloads[taskId] = downloadTask
         downloadTask.taskDescription = taskId
         
@@ -156,6 +182,13 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
         if let downloadTask = activeDownloads[taskId] {
             downloadTask.cancel()
             activeDownloads.removeValue(forKey: taskId)
+        } else {
+            // May be a background task from a previous launch we never re-adopted.
+            session.getAllTasks { sessionTasks in
+                for task in sessionTasks where task.taskDescription == taskId {
+                    task.cancel()
+                }
+            }
         }
         tasks.removeAll(where: { $0.id == taskId })
         deleteLocalFile(taskId: taskId)
@@ -193,7 +226,6 @@ final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDeleg
     private func saveTasks() {
         if let data = try? JSONEncoder().encode(tasks) {
             UserDefaults.standard.set(data, forKey: "downloaded_tasks")
-            NotificationCenter.default.post(name: NSNotification.Name("DownloadsUpdated"), object: nil)
         }
     }
     

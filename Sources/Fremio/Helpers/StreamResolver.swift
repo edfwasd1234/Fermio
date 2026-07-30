@@ -26,9 +26,31 @@ enum ServerOption: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Errors surfaced by the stream resolvers, with user-readable messages so the
+/// player can distinguish "genuinely missing" from "something went wrong".
+enum StreamResolverError: LocalizedError {
+    case notFound
+    case network
+    case decoding
+    case badURL
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound:
+            return "This title isn't available on any server yet. Please try another server or check back later."
+        case .network:
+            return "Couldn't reach the streaming servers. Check your connection and try again."
+        case .decoding:
+            return "The server returned an unexpected response. Try a different server."
+        case .badURL:
+            return "The stream address was invalid."
+        }
+    }
+}
+
 final class StreamResolver: Sendable {
     static let shared = StreamResolver()
-    
+
     private init() {}
     
     private let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -62,7 +84,7 @@ final class StreamResolver: Sendable {
         tokenRequest.setValue(origin, forHTTPHeaderField: "Origin")
         tokenRequest.setValue(referer, forHTTPHeaderField: "Referer")
         
-        let (tokenData, tokenResponse) = try await URLSession.shared.data(for: tokenRequest)
+        let (tokenData, tokenResponse) = try await AppConfig.httpSession.data(for: tokenRequest)
         
         guard let httpTokenResponse = tokenResponse as? HTTPURLResponse, httpTokenResponse.statusCode == 200 else {
             throw URLError(.badServerResponse)
@@ -97,7 +119,7 @@ final class StreamResolver: Sendable {
         proxyRequest.setValue(referer, forHTTPHeaderField: "Referer")
         proxyRequest.httpBody = bodyData
         
-        let (proxyData, proxyResponse) = try await URLSession.shared.data(for: proxyRequest)
+        let (proxyData, proxyResponse) = try await AppConfig.httpSession.data(for: proxyRequest)
         
         guard let httpProxyResponse = proxyResponse as? HTTPURLResponse, httpProxyResponse.statusCode == 200 else {
             throw URLError(.badServerResponse)
@@ -195,7 +217,7 @@ final class StreamResolver: Sendable {
             if let fallbackUrl = try? await resolveFromCinebyFallback(type: type, tmdbId: tmdbId, season: season, episode: episode) {
                 return fallbackUrl
             }
-            throw NSError(domain: "StreamResolver", code: 4, userInfo: [NSLocalizedDescriptionKey: "not found, please wait a little more for our team to put it on here."])
+            throw StreamResolverError.notFound
         }
         
         // 3. Construct proxy URL through vlaq11.site (mimicking encodeURIComponent)
@@ -231,7 +253,7 @@ final class StreamResolver: Sendable {
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
         request.setValue("https://nextgencloudfabric.com/", forHTTPHeaderField: "Referer")
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await AppConfig.httpSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -268,7 +290,7 @@ final class StreamResolver: Sendable {
         seedRequest.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
         seedRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         
-        let (seedData, _) = try await URLSession.shared.data(for: seedRequest)
+        let (seedData, _) = try await AppConfig.httpSession.data(for: seedRequest)
         guard let seedJson = try? JSONSerialization.jsonObject(with: seedData) as? [String: Any],
               let seed = seedJson["seed"] as? String else {
             throw NSError(domain: "StreamResolver", code: 11, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch seed from wingsdatabase"])
@@ -300,7 +322,7 @@ final class StreamResolver: Sendable {
         request.setValue("https://www.cineby.at", forHTTPHeaderField: "Origin")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         
-        let (sourcesData, _) = try await URLSession.shared.data(for: request)
+        let (sourcesData, _) = try await AppConfig.httpSession.data(for: request)
         
         guard let encryptedBase64 = String(data: sourcesData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !encryptedBase64.isEmpty else {
@@ -363,13 +385,13 @@ final class StreamResolver: Sendable {
     }
     
     private func fetchTMDBDetails(tmdbId: String, type: MediaType) async -> TMDBMovieData? {
-        let apiKey = UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
+        let apiKey = AppConfig.tmdbApiKey
         let path = type == .movie ? "movie/\(tmdbId)" : "tv/\(tmdbId)"
         let urlString = "https://api.themoviedb.org/3/\(path)?api_key=\(apiKey)&append_to_response=external_ids"
         guard let url = URL(string: urlString) else { return nil }
         
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await AppConfig.httpSession.data(from: url)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 let title = (json["title"] as? String) ?? (json["name"] as? String) ?? (json["original_title"] as? String) ?? ""
                 
@@ -393,7 +415,7 @@ final class StreamResolver: Sendable {
     }
     
     private func fetchImdbId(tmdbId: String, type: MediaType) async -> String? {
-        let apiKey = UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
+        let apiKey = AppConfig.tmdbApiKey
         let urlString: String
         if type == .movie {
             urlString = "https://api.themoviedb.org/3/movie/\(tmdbId)?api_key=\(apiKey)"
@@ -403,7 +425,7 @@ final class StreamResolver: Sendable {
         
         guard let url = URL(string: urlString) else { return nil }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await AppConfig.httpSession.data(from: url)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 return json["imdb_id"] as? String
             }
@@ -439,7 +461,10 @@ final class StreamResolver: Sendable {
         }
         
         let session = URLSession(configuration: .default, delegate: RedirectHandler(), delegateQueue: nil)
-        
+        // A delegate-based session retains its delegate until invalidated; without
+        // this it would leak on every call (anime playback / server switches).
+        defer { session.finishTasksAndInvalidate() }
+
         do {
             let (_, response) = try await session.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,

@@ -11,10 +11,11 @@ enum LibraryTab: String, CaseIterable {
 struct LibraryView: View {
     @State private var activeLibraryTab: LibraryTab = .watchlist
     @Namespace private var segmentAnimation
-    
-    @State private var watchlistItems: [MediaItem] = []
-    @State private var favoriteItems: [MediaItem] = []
+
     @ObservedObject private var downloadManager = DownloadManager.shared
+
+    private var watchlistItems: [MediaItem] { LibraryStore.shared.watchlist }
+    private var favoriteItems: [MediaItem] { LibraryStore.shared.favorites }
     
     var body: some View {
         VStack(spacing: 20) {
@@ -75,7 +76,7 @@ struct LibraryView: View {
                             emptyStateView(message: "Watchlist is empty.\nAdd titles from their details page.")
                         } else {
                             ForEach(watchlistItems) { item in
-                                LibraryRowView(item: item, rowType: .watchlist, onUpdate: loadLibraryData)
+                                LibraryRowView(item: item, rowType: .watchlist)
                              }
                         }
                     case .favorites:
@@ -83,7 +84,7 @@ struct LibraryView: View {
                             emptyStateView(message: "No favorites saved.\nTap the heart icon on any title.")
                         } else {
                             ForEach(favoriteItems) { item in
-                                LibraryRowView(item: item, rowType: .favorite, onUpdate: loadLibraryData)
+                                LibraryRowView(item: item, rowType: .favorite)
                             }
                         }
                     case .downloads:
@@ -101,15 +102,6 @@ struct LibraryView: View {
                 }
                 .padding(.horizontal, 24)
             }
-        }
-        .onAppear {
-            loadLibraryData()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("WatchlistUpdated"))) { _ in
-            loadLibraryData()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("FavoritesUpdated"))) { _ in
-            loadLibraryData()
         }
     }
     
@@ -137,21 +129,6 @@ struct LibraryView: View {
         .padding(.vertical, 40)
     }
     
-    private func loadLibraryData() {
-        if let data = UserDefaults.standard.data(forKey: "watchlist_items"),
-           let decoded = try? JSONDecoder().decode([MediaItem].self, from: data) {
-            self.watchlistItems = decoded
-        } else {
-            self.watchlistItems = []
-        }
-        
-        if let data = UserDefaults.standard.data(forKey: "favorite_items"),
-           let decoded = try? JSONDecoder().decode([MediaItem].self, from: data) {
-            self.favoriteItems = decoded
-        } else {
-            self.favoriteItems = []
-        }
-    }
 }
 
 enum LibraryRowType {
@@ -162,9 +139,7 @@ enum LibraryRowType {
 struct LibraryRowView: View {
     let item: MediaItem
     let rowType: LibraryRowType
-    var onUpdate: () -> Void
-    
-    @State private var isPressed = false
+
     @State private var showDetail = false
     @State private var showPlayer = false
     
@@ -264,10 +239,8 @@ struct LibraryRowView: View {
             }
             .padding(12)
             .liquidGlass(cornerRadius: 18, fillOpacity: 0.05)
-            .scaleEffect(isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         }
-        .buttonStyle(PressActionsButtonStyle(isPressed: $isPressed))
+        .buttonStyle(PressActionsButtonStyle(scale: 0.98))
         .sheet(isPresented: $showDetail) {
             MediaDetailView(item: item)
         }
@@ -293,33 +266,11 @@ struct LibraryRowView: View {
     }
     
     private func removeFromWatchlist() {
-        var list = fetchList(key: "watchlist_items")
-        list.removeAll(where: { $0.id == item.id && $0.type == item.type })
-        saveList(list, key: "watchlist_items")
-        NotificationCenter.default.post(name: NSNotification.Name("WatchlistUpdated"), object: nil)
-        onUpdate()
+        LibraryStore.shared.removeFromWatchlist(item)
     }
-    
+
     private func removeFromFavorites() {
-        var list = fetchList(key: "favorite_items")
-        list.removeAll(where: { $0.id == item.id && $0.type == item.type })
-        saveList(list, key: "favorite_items")
-        NotificationCenter.default.post(name: NSNotification.Name("FavoritesUpdated"), object: nil)
-        onUpdate()
-    }
-    
-    private func fetchList(key: String) -> [MediaItem] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let list = try? JSONDecoder().decode([MediaItem].self, from: data) else {
-            return []
-        }
-        return list
-    }
-    
-    private func saveList(_ list: [MediaItem], key: String) {
-        if let data = try? JSONEncoder().encode(list) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        LibraryStore.shared.removeFromFavorites(item)
     }
 }
 

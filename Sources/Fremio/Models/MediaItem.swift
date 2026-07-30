@@ -16,6 +16,18 @@ struct MediaItem: Identifiable, Hashable, Codable {
     let description: String
     let isTrending: Bool
     let isNewRelease: Bool
+    /// Structured metadata kept alongside the display `duration` string so
+    /// callers don't have to re-parse it. Optional + defaulted so existing
+    /// initializers and previously-persisted JSON keep working.
+    var runtimeMinutes: Int? = nil
+    var seasonCount: Int? = nil
+
+    /// Heuristic anime detection (TMDB has no dedicated "anime" genre, so this
+    /// keys off animation). Centralized here so every screen agrees.
+    var isAnime: Bool {
+        let g = genre.lowercased()
+        return g.contains("anim")
+    }
 }
 
 enum MediaType: String, CaseIterable, Codable {

@@ -44,7 +44,7 @@ struct SearchView: View {
                     .foregroundColor(.white)
                     .font(.system(size: 15))
                     .accentColor(.blue)
-                    .onChange(of: searchQuery) { newValue in
+                    .onChange(of: searchQuery) { _, newValue in
                         HapticManager.shared.impact(style: .soft)
                         runSearch(query: newValue)
                     }

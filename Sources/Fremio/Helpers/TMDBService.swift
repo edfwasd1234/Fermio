@@ -7,14 +7,9 @@ class TMDBService {
     
     private let cacheDirectoryName = "tmdb_cache"
     
-    // Default API Key from fluxtv.cc fallback
-    private var apiKey: String {
-        UserDefaults.standard.string(forKey: "tmdbApiKey") ?? "3d421899d5ce93db8ad4ae4591ccc130"
-    }
-    
-    private var baseUrl: String {
-        "https://api.themoviedb.org/3"
-    }
+    private var apiKey: String { AppConfig.tmdbApiKey }
+
+    private var baseUrl: String { AppConfig.tmdbBaseURL }
     
     private init() {
         createCacheDirectoryIfNeeded()
@@ -92,8 +87,8 @@ class TMDBService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
+
+        let (data, response) = try await AppConfig.httpSession.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
@@ -179,10 +174,12 @@ class TMDBService {
             duration: durationStr,
             description: detail.overview ?? "",
             isTrending: false,
-            isNewRelease: false
+            isNewRelease: false,
+            runtimeMinutes: (type == .movie ? detail.runtime : nil),
+            seasonCount: (type == .show ? detail.number_of_seasons : nil)
         )
     }
-    
+
     func fetchEpisodes(tvId: String, seasonNumber: Int) async throws -> [TMDBEpisode] {
         let path = "/tv/\(tvId)/season/\(seasonNumber)"
         let response: TMDBSeasonResponse = try await fetch(path: path, cacheKey: "episodes_\(tvId)_\(seasonNumber)", expiration: 86400) // 24 hours

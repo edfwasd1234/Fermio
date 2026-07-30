@@ -66,7 +66,7 @@ final class WCOTVResolver: Sendable {
         let postData = "catara=\(title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title)&konuara=series"
         request.httpBody = postData.data(using: .utf8)
         
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
+        guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
             return []
         }
@@ -100,7 +100,7 @@ final class WCOTVResolver: Sendable {
         var request = URLRequest(url: url)
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
+        guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
             return []
         }
@@ -162,7 +162,7 @@ final class WCOTVResolver: Sendable {
         request.setValue(ua, forHTTPHeaderField: "User-Agent")
         request.setValue("https://www.wco.tv/", forHTTPHeaderField: "Referer")
         
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
+        guard let (data, _) = try? await AppConfig.httpSession.data(for:request),
               let html = String(data: data, encoding: .utf8) else {
             return []
         }
@@ -176,7 +176,7 @@ final class WCOTVResolver: Sendable {
         getvidRequest.setValue(getvidInfo.referer, forHTTPHeaderField: "Referer")
         getvidRequest.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         
-        guard let (vidData, _) = try? await URLSession.shared.data(for: getvidRequest),
+        guard let (vidData, _) = try? await AppConfig.httpSession.data(for:getvidRequest),
               let vidResponse = try? JSONDecoder().decode(WCOTVResponse.self, from: vidData) else {
             return []
         }

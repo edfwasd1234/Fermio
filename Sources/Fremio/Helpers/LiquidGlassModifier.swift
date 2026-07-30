@@ -1,12 +1,27 @@
 import SwiftUI
 
-/// A view modifier that applies a premium native liquid glassmorphism effect using Apple's iOS 26+ API.
+/// A view modifier that applies a premium native liquid glassmorphism effect
+/// using Apple's iOS 26+ API, layered with a subtle fill, hairline border, and
+/// colored glow so every parameter actually affects the rendered result.
 struct LiquidGlassModifier: ViewModifier {
     var cornerRadius: CGFloat
-    
+    var borderWidth: CGFloat
+    var fillOpacity: CGFloat
+    var shadowRadius: CGFloat
+    var glowColor: Color
+
     func body(content: Content) -> some View {
         content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(Color.white.opacity(fillOpacity))
+            )
             .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: borderWidth)
+            )
+            .shadow(color: glowColor.opacity(0.25), radius: shadowRadius, x: 0, y: 6)
     }
 }
 
@@ -19,14 +34,37 @@ extension View {
         shadowRadius: CGFloat = 12,
         glowColor: Color = .white
     ) -> some View {
-        self.modifier(LiquidGlassModifier(cornerRadius: cornerRadius))
+        self.modifier(LiquidGlassModifier(
+            cornerRadius: cornerRadius,
+            borderWidth: borderWidth,
+            fillOpacity: fillOpacity,
+            shadowRadius: shadowRadius,
+            glowColor: glowColor
+        ))
     }
 }
 
-/// A background view helper that uses native dark system backgrounds.
+/// A subtle ambient background: a near-black base with two soft colored glows
+/// bleeding in from opposite corners, so the glass overlays have something to
+/// react to (previously this was a flat black fill).
 struct LiquidBackgroundView: View {
     var body: some View {
-        Color.black.ignoresSafeArea()
+        ZStack {
+            Color.black
+            RadialGradient(
+                colors: [Color.blue.opacity(0.22), .clear],
+                center: .topLeading,
+                startRadius: 0,
+                endRadius: 420
+            )
+            RadialGradient(
+                colors: [Color.purple.opacity(0.20), .clear],
+                center: .bottomTrailing,
+                startRadius: 0,
+                endRadius: 460
+            )
+        }
+        .ignoresSafeArea()
     }
 }
 

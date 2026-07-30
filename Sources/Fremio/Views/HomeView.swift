@@ -5,8 +5,9 @@ struct HomeView: View {
     @State private var trendingItems: [MediaItem] = []
     @State private var popularMovies: [MediaItem] = []
     @State private var popularShows: [MediaItem] = []
-    @State private var continueWatchingItems: [WatchProgress] = []
     @State private var isLoading = true
+
+    private var continueWatchingItems: [WatchProgress] { LibraryStore.shared.continueWatching }
     
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -66,7 +67,7 @@ struct HomeView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(continueWatchingItems) { progress in
-                                        ContinueWatchingCard(progress: progress, onUpdate: loadContinueWatching)
+                                        ContinueWatchingCard(progress: progress)
                                     }
                                 }
                                 .padding(.horizontal, 24)
@@ -140,10 +141,6 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .onAppear {
             loadHomeData()
-            loadContinueWatching()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ContinueWatchingUpdated"))) { _ in
-            loadContinueWatching()
         }
     }
     
@@ -176,22 +173,12 @@ struct HomeView: View {
         }
     }
     
-    private func loadContinueWatching() {
-        if let data = UserDefaults.standard.data(forKey: "continue_watching_items"),
-           let decoded = try? JSONDecoder().decode([WatchProgress].self, from: data) {
-            self.continueWatchingItems = decoded
-        } else {
-            self.continueWatchingItems = []
-        }
-    }
 }
 
 /// A card component for items that the user is currently watching.
 struct ContinueWatchingCard: View {
     let progress: WatchProgress
-    var onUpdate: () -> Void
-    
-    @State private var isPressed = false
+
     @State private var playbackContext: PlaybackContext? = nil
     
     var body: some View {
@@ -297,11 +284,9 @@ struct ContinueWatchingCard: View {
                 .padding(.horizontal, 4)
             }
             .frame(width: 200)
-            .scaleEffect(isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isPressed)
         }
-        .buttonStyle(PressActionsButtonStyle(isPressed: $isPressed))
-        .fullScreenCover(item: $playbackContext, onDismiss: onUpdate) { context in
+        .buttonStyle(PressActionsButtonStyle(scale: 0.96))
+        .fullScreenCover(item: $playbackContext) { context in
             MoviePlayerView(item: context.mediaItem, season: context.season, episode: context.episode)
         }
     }
@@ -448,31 +433,14 @@ struct HeroBanner: View {
     }
     
     private var isWatchlist: Bool {
-        guard let data = UserDefaults.standard.data(forKey: "watchlist_items"),
-              let list = try? JSONDecoder().decode([MediaItem].self, from: data) else {
-            return false
-        }
-        return list.contains(where: { $0.id == item.id && $0.type == item.type })
+        LibraryStore.shared.isInWatchlist(item)
     }
-    
+
     private func toggleWatchlist(item: MediaItem) {
-        var list: [MediaItem] = []
-        if let data = UserDefaults.standard.data(forKey: "watchlist_items"),
-           let decoded = try? JSONDecoder().decode([MediaItem].self, from: data) {
-            list = decoded
-        }
-        
-        if let idx = list.firstIndex(where: { $0.id == item.id && $0.type == item.type }) {
-            list.remove(at: idx)
-            HapticManager.shared.impact(style: .soft)
-        } else {
-            list.insert(item, at: 0)
+        if LibraryStore.shared.toggleWatchlist(item) {
             HapticManager.shared.notification(type: .success)
-        }
-        
-        if let data = try? JSONEncoder().encode(list) {
-            UserDefaults.standard.set(data, forKey: "watchlist_items")
-            NotificationCenter.default.post(name: NSNotification.Name("WatchlistUpdated"), object: nil)
+        } else {
+            HapticManager.shared.impact(style: .soft)
         }
     }
 }

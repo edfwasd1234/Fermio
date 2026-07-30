@@ -5,7 +5,7 @@ struct SettingsView: View {
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @AppStorage("autoPlayPreviews") private var autoPlayPreviews = true
     @AppStorage("hdStreaming") private var hdStreaming = true
-    @AppStorage("tmdbApiKey") private var tmdbApiKey = "3d421899d5ce93db8ad4ae4591ccc130"
+    @AppStorage("tmdbApiKey") private var tmdbApiKey = AppConfig.defaultTMDBApiKey
     
     @State private var easterEggCount = 0
     @State private var showEasterEgg = false
@@ -35,27 +35,22 @@ struct SettingsView: View {
                                 .shadow(color: .blue.opacity(0.3), radius: 8)
                             
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Alex Morgan")
+                                Text("Fremio")
                                     .font(.system(size: 20, weight: .bold))
                                     .foregroundColor(.white)
-                                Text("Premium Member")
+                                Text("Personal Library")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.cyan)
                             }
                             Spacer()
                         }
-                        
+
                         Divider().background(Color.white.opacity(0.1))
-                        
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                  Text("Account Email")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.gray)
-                                Text("alex.morgan@fremio.app")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.white.opacity(0.9))
-                            }
+
+                        HStack(spacing: 24) {
+                            libraryStat(count: LibraryStore.shared.watchlist.count, label: "Watchlist")
+                            libraryStat(count: LibraryStore.shared.favorites.count, label: "Favorites")
+                            libraryStat(count: LibraryStore.shared.continueWatching.count, label: "In Progress")
                             Spacer()
                         }
                     }
@@ -129,7 +124,7 @@ struct SettingsView: View {
                                     .frame(width: 180)
                                     .textFieldStyle(PlainTextFieldStyle())
                                     .accentColor(.cyan)
-                                    .onChange(of: tmdbApiKey) { _ in
+                                    .onChange(of: tmdbApiKey) { _, _ in
                                         TMDBService.shared.clearCache() // Clear cache so new API key fetches fresh content
                                     }
                             }
@@ -233,6 +228,18 @@ struct SettingsView: View {
         }
     }
     
+    // A small labelled count for the profile card
+    private func libraryStat(count: Int, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(count)")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.gray)
+        }
+    }
+
     // Toggles Settings Row
     private func settingsToggleRow(
         title: String,
@@ -258,7 +265,7 @@ struct SettingsView: View {
             Toggle("", isOn: isEnabled)
                 .labelsHidden()
                 .toggleStyle(SwitchToggleStyle(tint: .blue))
-                .onChange(of: isEnabled.wrappedValue) { _ in
+                .onChange(of: isEnabled.wrappedValue) { _, _ in
                     action?()
                 }
         }
